@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PageSum settings</title>
+  <link rel="stylesheet" href="options.css">
+</head>
+<body>
+  <main>
+    <h1>PageSum settings</h1>
+
+    <section aria-labelledby="h-key">
+      <h2 id="h-key">API key</h2>
+      <div class="row">
+        <input id="apiKey" type="password" autocomplete="off" spellcheck="false" aria-label="Gemini API key" placeholder="AIza...">
+        <button id="keyShow" type="button" class="btn">Show</button>
+      </div>
+      <div class="row">
+        <button id="keySave" type="button" class="btn primary">Save</button>
+        <button id="keyTest" type="button" class="btn">Test key</button>
+        <button id="keyRemove" type="button" class="btn danger">Remove key</button>
+      </div>
+      <p id="keyMsg" class="msg" role="status" aria-live="polite"></p>
+      <p class="muted">Get a free key at <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer">aistudio.google.com/apikey</a>.</p>
+      <p class="note">Your key is stored unencrypted in this browser profile's extension storage and is sent only to generativelanguage.googleapis.com. Page text you summarise is sent to Google's Gemini API. On the free tier, Google may use inputs to improve its products. Don't summarise pages with sensitive data.</p>
+    </section>
+
+    <section aria-labelledby="h-model">
+      <h2 id="h-model">Model</h2>
+      <div class="row">
+        <select id="model" aria-label="Model"></select>
+        <button id="modelRefresh" type="button" class="btn">Refresh models</button>
+      </div>
+      <div class="row" id="customRow" hidden>
+        <input id="customModel" type="text" autocomplete="off" spellcheck="false" aria-label="Custom model id" placeholder="e.g. gemini-3.8-flash">
+      </div>
+      <p id="modelMsg" class="msg" role="status" aria-live="polite"></p>
+    </section>
+
+    <section aria-labelledby="h-summary">
+      <h2 id="h-summary">Summary</h2>
+      <fieldset>
+        <legend>Default length</legend>
+        <label class="inline"><input type="radio" name="length" value="short"> Short</label>
+        <label class="inline"><input type="radio" name="length" value="medium"> Medium</label>
+        <label class="inline"><input type="radio" name="length" value="detailed"> Detailed</label>
+      </fieldset>
+      <label class="field">Output language
+        <input id="language" type="text" placeholder="Leave empty to match the page" autocomplete="off">
+      </label>
+      <label class="field">Max page characters
+        <input id="maxChars" type="number" min="5000" max="400000" step="5000">
+      </label>
+      <label class="inline"><input id="autoSummarize" type="checkbox"> Summarise automatically when the popup opens</label>
+    </section>
+
+    <section aria-labelledby="h-data">
+      <h2 id="h-data">Data</h2>
+      <div class="row">
+        <button id="clearCache" type="button" class="btn">Clear cached summaries</button>
+        <span id="dataMsg" class="msg" role="status" aria-live="polite"></span>
+      </div>
+    </section>
+  </main>
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden>Saved</div>
+  <script type="module" src="options.js"></script>
+</body>
+</html>
