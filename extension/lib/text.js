@@ -57,19 +57,21 @@ const RESTRICTED_SCHEMES = new Set([
 
 export const MSG_RESTRICTED = "Chrome doesn't let extensions read this page.";
 export const MSG_WEBSTORE = "Chrome doesn't let extensions read the Web Store.";
-export const MSG_PDF = "PDFs aren't supported yet. Open the article as a web page instead.";
+export const MSG_PDF = "This PDF is a temporary in-page file PageSum can't read. Download it and open the file, or open its original link.";
+// Phase 1 only: PDF reading arrives in phase 2 (spec 8.5). Remove this constant then.
+export const MSG_PDF_UNSUPPORTED = "PDFs aren't supported yet. Open the article as a web page instead.";
 export const MSG_FILE = "To read local files, turn on 'Allow access to file URLs' for PageSum in chrome://extensions.";
 
-export function isRestrictedUrl(url) {
+export function isRestrictedUrl(url, { title } = {}) {
   if (!url) return { ok: false, kind: 'restricted', reason: MSG_RESTRICTED };
   let u;
   try { u = new URL(url); } catch { return { ok: false, kind: 'restricted', reason: MSG_RESTRICTED }; }
+  if (u.protocol === 'blob:' && /\.pdf\s*$/i.test(String(title || ''))) return { ok: false, kind: 'pdf', reason: MSG_PDF };
   if (RESTRICTED_SCHEMES.has(u.protocol)) return { ok: false, kind: 'restricted', reason: MSG_RESTRICTED };
   if (u.hostname === 'chromewebstore.google.com' ||
       (u.hostname === 'chrome.google.com' && u.pathname.startsWith('/webstore'))) {
     return { ok: false, kind: 'webstore', reason: MSG_WEBSTORE };
   }
-  if (/\.pdf$/i.test(u.pathname)) return { ok: false, kind: 'pdf', reason: MSG_PDF };
   if (u.protocol === 'file:') return { ok: true, kind: 'file', reason: MSG_FILE };
   return { ok: true };
 }
@@ -79,5 +81,6 @@ export function pageKind(url) {
   try { u = new URL(url); } catch { return 'normal'; }
   const hostOk = ['www.youtube.com', 'm.youtube.com', 'youtube.com'].includes(u.hostname);
   if (hostOk && (u.pathname.startsWith('/watch') || u.pathname.startsWith('/shorts'))) return 'youtube';
+  if (/\.pdf$/i.test(u.pathname)) return 'pdf';
   return 'normal';
 }

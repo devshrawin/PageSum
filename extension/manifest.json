@@ -1,18 +1,21 @@
 {
   "manifest_version": 3,
   "name": "PageSum",
-  "version": "1.0.0",
-  "description": "Summarise any web page and ask follow-up questions, using your own Google Gemini API key.",
+  "version": "1.1.0",
+  "description": "Summarise, question and navigate any page in a side panel, with clickable sources, using your own Google Gemini API key.",
   "minimum_chrome_version": "116",
   "action": {
-    "default_title": "Summarise this page",
-    "default_popup": "popup.html",
+    "default_title": "Open PageSum",
     "default_icon": { "16": "icons/icon16.png", "32": "icons/icon32.png", "48": "icons/icon48.png", "128": "icons/icon128.png" }
   },
   "icons": { "16": "icons/icon16.png", "32": "icons/icon32.png", "48": "icons/icon48.png", "128": "icons/icon128.png" },
+  "background": { "service_worker": "sw.js", "type": "module" },
+  "side_panel": { "default_path": "sidepanel.html" },
   "options_ui": { "page": "options.html", "open_in_tab": true },
-  "permissions": ["activeTab", "scripting", "storage"],
+  "permissions": ["activeTab", "scripting", "storage", "sidePanel"],
+  "optional_permissions": ["tabs"],
   "host_permissions": ["https://generativelanguage.googleapis.com/*"],
+  "optional_host_permissions": ["<all_urls>"],
   "commands": {
     "_execute_action": { "suggested_key": { "default": "Alt+Shift+S" }, "description": "Open PageSum" }
   }

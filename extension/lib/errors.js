@@ -106,6 +106,8 @@ export function userMessage(err, { currentModel } = {}) {
       r = { title: 'Response withheld', body: 'Gemini declined because the answer would copy the source too closely. Try a shorter length or ask a narrower question.', actions: ['retry'] }; break;
     case 'empty':
       r = { title: 'Empty response', body: 'Gemini returned no text. Try again.', actions: ['retry'] }; break;
+    case 'no_access':
+      r = { title: "Can't read this tab", body: 'Click the PageSum icon while on this tab, or allow access in the panel.', actions: [] }; break;
     case 'aborted':
       r = { title: '', body: '', actions: [] }; break;
     default:

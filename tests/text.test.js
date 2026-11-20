@@ -68,8 +68,13 @@ test('isRestrictedUrl: every row', () => {
   assert.deepEqual(isRestrictedUrl('https://chromewebstore.google.com/detail/x'), { ok: false, kind: 'webstore', reason: "Chrome doesn't let extensions read the Web Store." });
   assert.equal(isRestrictedUrl('https://chrome.google.com/webstore/detail/x').kind, 'webstore');
   assert.equal(isRestrictedUrl('https://chrome.google.com/other').ok, true);
-  assert.equal(isRestrictedUrl('https://a.com/Paper.PDF').kind, 'pdf');
-  assert.equal(isRestrictedUrl('https://a.com/Paper.PDF').reason, "PDFs aren't supported yet. Open the article as a web page instead.");
+  // v2: a .pdf path is no longer restricted (PDF is supported); only a blob: PDF gets the special message.
+  assert.deepEqual(isRestrictedUrl('https://a.com/Paper.PDF'), { ok: true });
+  const blobPdf = isRestrictedUrl('blob:https://a.com/1', { title: 'paper.pdf' });
+  assert.equal(blobPdf.ok, false);
+  assert.equal(blobPdf.kind, 'pdf');
+  assert.match(blobPdf.reason, /temporary in-page file/);
+  assert.equal(isRestrictedUrl('blob:https://a.com/1', { title: 'Some page' }).kind, 'restricted');
   const f = isRestrictedUrl('file:///C:/x/test.html');
   assert.equal(f.ok, true);
   assert.equal(f.kind, 'file');
@@ -84,4 +89,7 @@ test('pageKind', () => {
   assert.equal(pageKind('https://www.youtube.com/'), 'normal');
   assert.equal(pageKind('https://www.youtube.com/@chan'), 'normal');
   assert.equal(pageKind('https://example.com/watch'), 'normal');
+  assert.equal(pageKind('https://example.com/a/Paper.PDF'), 'pdf');
+  assert.equal(pageKind('https://example.com/a.pdf?x=1'), 'pdf');
+  assert.equal(pageKind('https://example.com/a.pdf.html'), 'normal');
 });

@@ -1,0 +1,16 @@
+/* PageSum page agent styles, inserted with chrome.scripting.insertCSS (spec 8.3).
+   Overlay nodes use "all: initial" so page CSS cannot restyle them, and they never take pointer events. */
+::highlight(pagesum-cite) {
+  background-color: rgba(250, 204, 21, 0.55);
+  color: inherit;
+}
+
+.pagesum-ov-flash {
+  all: initial;
+  position: fixed;
+  pointer-events: none;
+  z-index: 2147483647;
+  border: 2px solid #4F46E5;
+  border-radius: 4px;
+  box-shadow: 0 0 0 4px rgba(79, 70, 229, 0.25);
+}

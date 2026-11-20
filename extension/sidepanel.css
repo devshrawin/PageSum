@@ -1,3 +1,5 @@
+/* PageSum side panel. All colours, radii and spacing are custom properties so a visual redesign
+   can re-theme everything from :root. Class names are simple and stable (see SPEC_V2 section 14). */
 :root {
   --bg: #ffffff;
   --fg: #1c1c28;
@@ -7,7 +9,11 @@
   --accent: #4F46E5;
   --accent-fg: #ffffff;
   --danger: #b42318;
+  --warn: #b54708;
+  --highlight: #fde68a;
   --user-bubble: #e6e8fb;
+  --radius: 8px;
+  --space: 12px;
 }
 @media (prefers-color-scheme: dark) {
   :root {
@@ -19,19 +25,19 @@
     --accent: #818CF8;
     --accent-fg: #14151c;
     --danger: #f97066;
+    --warn: #fdb022;
+    --highlight: #854d0e;
     --user-bubble: #2b2e45;
   }
 }
 * { box-sizing: border-box; }
+html, body { height: 100%; }
 html { background: var(--bg); }
 body {
-  width: 420px;
-  min-height: 320px;
-  max-height: 600px;
+  min-width: 320px;
   margin: 0;
   display: flex;
   flex-direction: column;
-  position: relative;
   background: var(--bg);
   color: var(--fg);
   font: 14px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
@@ -42,20 +48,24 @@ body {
   overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
 }
 
-header { flex: none; padding: 10px 44px 6px 12px; border-bottom: 1px solid var(--border); }
-.page-title { margin: 0; font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.settings-btn { position: absolute; top: 6px; right: 8px; }
+header {
+  flex: none; display: flex; align-items: center; gap: 8px;
+  padding: 6px 8px 6px var(--space); border-bottom: 1px solid var(--border);
+}
+.page-title { flex: 1; min-width: 0; margin: 0; font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.settings-btn { flex: none; }
 
 .notices { flex: none; }
 .notice {
   display: flex; align-items: center; gap: 8px;
-  padding: 6px 12px; background: var(--card); border-bottom: 1px solid var(--border);
+  padding: 6px var(--space); background: var(--card); border-bottom: 1px solid var(--border);
   font-size: 12px; color: var(--muted);
 }
 .notice .txt { flex: 1; }
 .notice button { font: inherit; }
 
-#content { flex: 1 1 auto; overflow-y: auto; padding: 12px; min-height: 0; }
+#content { flex: 1 1 auto; overflow-y: auto; padding: var(--space); min-height: 0; }
+.panel { min-width: 0; }
 .view { padding: 4px 0; }
 .center { text-align: center; }
 .muted { color: var(--muted); }
@@ -64,6 +74,7 @@ header { flex: none; padding: 10px 44px 6px 12px; border-bottom: 1px solid var(-
 .big-icon { font-size: 32px; margin-top: 24px; }
 h2 { font-size: 16px; margin: 4px 0 8px; }
 .steps { padding-left: 20px; margin: 0 0 12px; }
+.actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; margin: 8px 0; }
 
 .spinner {
   width: 24px; height: 24px; margin: 40px auto 8px;
@@ -79,7 +90,7 @@ h2 { font-size: 16px; margin: 4px 0 8px; }
 }
 
 .row { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
-.row input { flex: 1; }
+.row input { flex: 1; min-width: 0; }
 input[type="password"], input[type="text"], textarea {
   font: inherit; color: var(--fg); background: var(--bg);
   border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; min-height: 32px;
@@ -103,8 +114,8 @@ input[type="password"], input[type="text"], textarea {
 a { color: var(--accent); }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
-.card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 8px 12px 12px; }
-.toolbar { display: flex; align-items: center; gap: 4px; margin-bottom: 8px; }
+.card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 8px var(--space) var(--space); }
+.toolbar { display: flex; align-items: center; gap: 4px; margin-bottom: 8px; flex-wrap: wrap; }
 .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; margin-right: auto; }
 .seg button {
   font: inherit; font-size: 13px; color: var(--fg); background: var(--bg);
@@ -126,12 +137,22 @@ a { color: var(--accent); }
 .md { overflow-wrap: anywhere; }
 .stopped { color: var(--muted); font-size: 12px; display: block; margin-top: 4px; }
 
-.err-card { border: 1px solid var(--danger); border-radius: 8px; padding: 8px 12px; background: var(--bg); }
+/* Citation markers: superscript buttons that jump to the source on the page. */
+.cites { margin-left: 1px; white-space: nowrap; }
+.cite {
+  font: inherit; font-size: 10px; line-height: 1; font-weight: 600;
+  min-width: 16px; height: 16px; padding: 0 3px; margin: 0 1px;
+  color: var(--accent); background: transparent;
+  border: 1px solid var(--accent); border-radius: 8px; cursor: pointer; vertical-align: baseline;
+}
+.cite:hover { background: var(--accent); color: var(--accent-fg); }
+
+.err-card { border: 1px solid var(--danger); border-radius: var(--radius); padding: 8px var(--space); background: var(--bg); }
 .err-card h3 { margin: 0 0 4px; font-size: 14px; color: var(--danger); }
 .err-card p { margin: 0 0 8px; }
-.err-card .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.err-card .actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-start; margin: 0; }
 
-.chat { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+.chat { display: flex; flex-direction: column; gap: 8px; margin-top: var(--space); }
 .msg-user {
   align-self: flex-end; max-width: 85%; background: var(--user-bubble);
   border-radius: 12px 12px 2px 12px; padding: 6px 10px; white-space: pre-wrap; overflow-wrap: anywhere;
@@ -142,7 +163,14 @@ a { color: var(--accent); }
 .msg-model .bubble-tools .link-btn { font-size: 12px; }
 .thinking { color: var(--muted); }
 
-footer { flex: none; border-top: 1px solid var(--border); padding: 8px 12px; background: var(--bg); }
+footer { flex: none; border-top: 1px solid var(--border); padding: 8px var(--space); background: var(--bg); }
 .ask { display: flex; gap: 8px; align-items: flex-end; }
-.ask textarea { flex: 1; resize: none; max-height: 120px; line-height: 1.4; overflow-y: auto; }
+.ask textarea { flex: 1; min-width: 0; resize: none; max-height: 120px; line-height: 1.4; overflow-y: auto; }
 .meta { display: flex; justify-content: space-between; align-items: center; margin-top: 4px; }
+
+.toast {
+  position: fixed; left: 50%; bottom: 72px; transform: translateX(-50%);
+  max-width: calc(100% - 24px); padding: 8px 14px;
+  background: var(--fg); color: var(--bg); border-radius: var(--radius);
+  font-size: 13px; text-align: center; z-index: 10;
+}

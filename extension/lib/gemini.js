@@ -5,12 +5,29 @@ import { filterModelList } from './models.js';
 
 export const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 
-export function buildRequestBody({ system, contents }) {
-  return {
-    systemInstruction: { parts: [{ text: system }] },
-    contents,
-  };
+// json: a response schema (structured output, phase 3) or undefined.
+// jsonStyle 'responseFormat' (REST docs) or 'legacy' (responseMimeType + responseJsonSchema).
+// cachedContent: 'cachedContents/{id}'. The system prompt then lives in the cache, so it is left out.
+// No sampling fields (temperature, topP...) are ever sent: they are ignored on current models.
+export function buildRequestBody({ system, contents, json, jsonStyle = 'responseFormat', cachedContent }) {
+  const body = {};
+  if (cachedContent) body.cachedContent = cachedContent;
+  else body.systemInstruction = { parts: [{ text: system }] };
+  body.contents = contents;
+  if (json) {
+    body.generationConfig = jsonStyle === 'legacy'
+      ? { responseMimeType: 'application/json', responseJsonSchema: json }
+      : { responseFormat: { text: { mimeType: 'APPLICATION_JSON', schema: json } } };
+  }
+  return body;
 }
+
+// Content part builders (text, inline file bytes, file URI such as a public YouTube URL).
+export const parts = {
+  text: (t) => ({ text: t }),
+  inline: (mimeType, data, level) => ({ inlineData: { mimeType, data }, ...(level ? { mediaResolution: { level } } : {}) }),
+  fileUri: (fileUri, level) => ({ fileData: { fileUri }, ...(level ? { mediaResolution: { level } } : {}) }),
+};
 
 export function extractChunk(json) {
   const cand = json && Array.isArray(json.candidates) ? json.candidates[0] : null;

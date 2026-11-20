@@ -137,6 +137,13 @@ test('switchModel hidden when current model is the default', () => {
   assert.deepEqual(userMessage(q, { currentModel: 'gemini-3.5-flash-lite' }).actions, ['retry']);
 });
 
+test('no_access (v2) has a message and no actions', () => {
+  const m = userMessage(new GeminiError('no_access'), { currentModel: 'x' });
+  assert.equal(m.title, "Can't read this tab");
+  assert.match(m.body, /Click the PageSum icon/);
+  assert.deepEqual(m.actions, []);
+});
+
 test('redactKey', () => {
   const key = 'AIza' + 'B1_-x'.repeat(7);
   assert.equal(key.length, 39);
