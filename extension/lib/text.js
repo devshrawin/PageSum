@@ -58,8 +58,6 @@ const RESTRICTED_SCHEMES = new Set([
 export const MSG_RESTRICTED = "Chrome doesn't let extensions read this page.";
 export const MSG_WEBSTORE = "Chrome doesn't let extensions read the Web Store.";
 export const MSG_PDF = "This PDF is a temporary in-page file PageSum can't read. Download it and open the file, or open its original link.";
-// Phase 1 only: PDF reading arrives in phase 2 (spec 8.5). Remove this constant then.
-export const MSG_PDF_UNSUPPORTED = "PDFs aren't supported yet. Open the article as a web page instead.";
 export const MSG_FILE = "To read local files, turn on 'Allow access to file URLs' for PageSum in chrome://extensions.";
 
 export function isRestrictedUrl(url, { title } = {}) {

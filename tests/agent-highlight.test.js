@@ -192,3 +192,32 @@ test('findPassage in content/core.js behaves exactly like lib/fuzzy.js (10 fixtu
     assert.equal(env.PS.util.mapCollapsedOffset(raw, idx), mapCollapsedOffset(raw, idx));
   }
 });
+
+test('a table chunk highlights from its first to its last cell text (markdown text is not on the page)', () => {
+  const first = t('Ann');
+  const last = t('42');
+  const tbl = el('table', {}, el('tr', {}, el('th', {}, 'Name'), el('th', {}, 'Age')), el('tr', {}, el('td', {}, first), el('td', {}, last)));
+  const body = el('body', {}, el('p', {}, FILL), tbl, el('p', {}, FILL + 'tail'));
+  const env = makeEnv({ body }).load();
+  const blk = env.call('extract', { structured: true }).data.blocks.find((b) => b.kind === 'table');
+  assert.ok(blk.text.includes('| Ann | 42 |'));
+  const r = env.call('highlight', { localId: blk.localId, text: blk.text });
+  assert.equal(r.data.found, 'exact');
+  const range = currentRange(env);
+  assert.equal(range.startContainer.nodeValue, 'Name');
+  assert.equal(range.endContainer, last);
+  assert.equal(range.endOffset, 2);
+  tbl.remove();
+  assert.equal(env.call('highlight', { localId: blk.localId, text: blk.text }).data.found, 'none');
+});
+
+test('the fuzzy fallback also searches open shadow roots', () => {
+  const inShadow = t('A passage that lives inside the shadow root of a custom element on this page.');
+  const host = el('div', { __shadow: [el('p', {}, inShadow)] });
+  const body = el('body', {}, el('p', {}, FILL), host, el('p', {}, FILL + 'tail'));
+  const env = makeEnv({ body }).load();
+  env.call('extract', { structured: true });
+  const r = env.call('highlight', { localId: 'nope', text: inShadow.nodeValue });
+  assert.equal(r.data.found, 'fuzzy');
+  assert.equal(currentRange(env).startContainer, inShadow);
+});

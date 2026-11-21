@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { GeminiError, mapHttpError, mapFetchError, mapFinishReason, userMessage, redactKey } from '../extension/lib/errors.js';
+import { GeminiError, mapHttpError, mapFetchError, mapFinishReason, mapVideoError, userMessage, redactKey } from '../extension/lib/errors.js';
 
 const badKeyBody = JSON.stringify({
   error: {
@@ -135,6 +135,37 @@ test('switchModel hidden when current model is the default', () => {
   assert.deepEqual(userMessage(e, { currentModel: 'gemini-3.5-flash-lite' }).actions, ['settings']);
   const q = mapHttpError(429, '{}');
   assert.deepEqual(userMessage(q, { currentModel: 'gemini-3.5-flash-lite' }).actions, ['retry']);
+});
+
+test('too_large, capture_denied and video_unavailable (phase 2) rows', () => {
+  const big = userMessage(new GeminiError('too_large', { message: 'This PDF is 34 MB; the limit is 20 MB.' }), {});
+  assert.deepEqual([big.title, big.body, big.actions], ['Too large', 'This PDF is 34 MB; the limit is 20 MB.', []]);
+  const cap = userMessage(new GeminiError('capture_denied'), {});
+  assert.deepEqual([cap.title, cap.body, cap.actions], ['Screenshot not allowed', 'Click the PageSum icon on this tab first, then try again.', []]);
+  const vid = userMessage(new GeminiError('video_unavailable'), {});
+  assert.equal(vid.title, "Video can't be read");
+  assert.match(vid.body, /Gemini can only watch public YouTube videos\. Open the video's transcript/);
+  assert.match(vid.body, /Show transcript/);
+  assert.deepEqual(vid.actions, ['retry']);
+});
+
+const ytBody = { contents: [{ role: 'user', parts: [{ fileData: { fileUri: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ' } }, { text: 'hi' }] }] };
+const textBody = { contents: [{ role: 'user', parts: [{ text: 'hi' }] }] };
+
+test('mapVideoError: a 400 about the video on a request with a YouTube part becomes video_unavailable', () => {
+  const e400 = (m) => mapHttpError(400, JSON.stringify({ error: { message: m } }));
+  assert.equal(mapVideoError(e400('File URI not accessible'), ytBody).code, 'video_unavailable');
+  assert.equal(mapVideoError(e400('Video is private'), ytBody).code, 'video_unavailable');
+  assert.equal(mapVideoError(e400('Invalid fileUri'), ytBody).code, 'video_unavailable');
+  assert.equal(mapVideoError(e400('YouTube video unavailable'), ytBody).code, 'video_unavailable');
+  // not about the video, or no video part: unchanged
+  assert.equal(mapVideoError(e400('Request payload size exceeds'), ytBody).code, 'bad_request');
+  assert.equal(mapVideoError(e400('File URI not accessible'), textBody).code, 'bad_request');
+  assert.equal(mapVideoError(e400('private'), null).code, 'bad_request');
+  // other statuses are untouched
+  const quota = mapHttpError(429, '{}');
+  assert.equal(mapVideoError(quota, ytBody), quota);
+  assert.equal(mapVideoError(null, ytBody), null);
 });
 
 test('no_access (v2) has a message and no actions', () => {

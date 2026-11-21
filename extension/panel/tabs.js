@@ -1,30 +1,33 @@
-// Per-tab state, tab following, access checks and agent injection (spec section 4).
+// Per-tab state, tab following, access checks and loading (spec section 4).
 // This module owns TabState and the load/show/navigate logic. It never touches the DOM: it asks the UI
 // (panel/page.js, wired in sidepanel.js) to draw through the hooks given to initTabs().
 import { getSettings, getCacheEntry, deleteCacheEntry } from '../lib/storage.js';
 import {
-  isRestrictedUrl, pageKind, normalizeUrlKey, MSG_FILE, MSG_RESTRICTED, MSG_PDF_UNSUPPORTED,
+  isRestrictedUrl, pageKind, normalizeUrlKey, fnv1a, MSG_FILE, MSG_RESTRICTED,
 } from '../lib/text.js';
-import { renumberFrames, selectChunks, chunkHash } from '../lib/chunks.js';
+import { renumberFrames, selectChunks, chunkHash, buildStructure } from '../lib/chunks.js';
 import { validateAgentEvent, isTrustedAgentSender } from '../lib/messages.js';
 import { makeNonce } from '../lib/prompts.js';
-import { redactKey } from '../lib/errors.js';
+import { redactKey, GeminiError } from '../lib/errors.js';
+import { videoIdFromUrl, canonicalVideoUrl, estimateVideoTokens, LONG_VIDEO_SECONDS } from '../lib/youtube.js';
+import { shouldOfferVision } from '../lib/vision.js';
+import { deleteCache } from '../lib/cachectl.js';
+import { callAgent, ensureAgent, CONTENT_FILES, CSS_FILES } from './agent.js';
+import { loadPdf, PdfAccessError, readVideoInfo, readVisualHints } from './media.js';
 
-// Injected together, in this order, with chrome.scripting.executeScript({ files }). Later phases append
-// 'content/media.js' (phase 2) and 'content/guide.js' (phase 3).
-export const CONTENT_FILES = ['content/core.js', 'content/extract.js', 'content/highlight.js'];
-export const CSS_FILES = ['content/agent.css'];
+export { callAgent, ensureAgent, CONTENT_FILES, CSS_FILES };
 
 export const AUTO_DELAY_MS = 1000;      // a tab must stay shown this long before an automatic summary (spec B12)
 const ACTIVATE_DEBOUNCE_MS = 300;
 const NAVIGATE_DEBOUNCE_MS = 700;
 const MAX_STREAMS = 2;
+const VIDEO_TEXT_CHARS = 8000;          // title / description / comments sent next to a YouTube video
 
 export const app = { settings: null, windowId: null, shownTabId: null };
 export const states = new Map();
 
 let hooks = {
-  render() {}, setTitle() {}, startSummary() {}, abortUi() {},
+  render() {}, setTitle() {}, startSummary() {}, startVision() {}, abortUi() {},
 };
 
 /* ---------- state ---------- */
@@ -49,22 +52,25 @@ export function newState(tabId) {
     urlKey: '', url: '', title: '',
     access: 'unknown',        // 'unknown' | 'ok' | 'need' | 'restricted'
     restrictedReason: '',
-    kind: 'html',             // 'html' | 'pdf' | 'youtube' | 'selection' (pdf/youtube flows arrive in phase 2)
+    kind: 'html',             // 'html' | 'pdf' | 'youtube' | 'image'
     view: 'init',             // 'init' | 'needKey' | 'restricted' | 'needAccess' | 'empty' | 'idle' | 'summary'
     host: '', origin: '',     // for the needAccess view
-    page: null,               // PageModel, null until extracted
+    page: null,               // PageModel (kind html | pdf | video | image), null until extracted
     hash: '',
     stale: false,
     conv: newConv(),
     ctrl: null,               // AbortController of the in-flight request for THIS tab
     streamAt: 0,
-    cache: null,              // explicit cache handle (phase 2)
+    cache: null,              // explicit context cache handle { name, expireAt, model, summary } (spec 8.7)
+    media: null,              // PDF bytes / screenshot / transcript kept for follow-ups (never persisted)
+    idleLabel: '',            // label of the idle view's button ("Summarise video")
+    frames: false,            // the agent is injected into embedded frames too
     guide: null, tool: null,  // phase 3
     notices: [],              // [{ key?, text, action?: { label, run } }]
     pending: null,            // 'empty' view: the extraction to use if the user presses "Try anyway"
     ignoreSelection: false,
     loadGen: 0, loading: false, refreshing: false,
-    autoPending: false, autoTimer: 0, shownAt: 0,
+    autoPending: false, autoVision: false, autoTimer: 0, shownAt: 0,
   };
 }
 
@@ -99,6 +105,13 @@ export function abortStream(st) {
   st.conv.pendingAnswer = null;
 }
 
+// Deletes this tab's explicit context cache (best effort). Called on New chat, re-summarise, navigation and tab close.
+export function dropCache(st) {
+  const c = st.cache;
+  st.cache = null;
+  if (c && c.name && app.settings && app.settings.apiKey) deleteCache({ apiKey: app.settings.apiKey, name: c.name }).catch(() => {});
+}
+
 // Starting a third concurrent stream aborts the oldest background one (spec 4.1).
 export function enforceStreamLimit(except) {
   const live = [...states.values()].filter((s) => s.ctrl && s !== except);
@@ -113,37 +126,16 @@ export function enforceStreamLimit(except) {
 
 export function resetState(st) {
   abortStream(st);
+  dropCache(st);
   clearTimeout(st.autoTimer);
   Object.assign(st, {
-    urlKey: '', page: null, hash: '', stale: false, conv: newConv(), notices: [], pending: null,
-    ignoreSelection: false, autoPending: false, view: 'init', access: 'unknown', restrictedReason: '',
-    guide: null, tool: null, cache: null,
+    urlKey: '', page: null, hash: '', stale: false, conv: newConv(), notices: [], pending: null, media: null,
+    ignoreSelection: false, autoPending: false, autoVision: false, idleLabel: '', view: 'init', access: 'unknown',
+    restrictedReason: '', guide: null, tool: null,
   });
 }
 
-/* ---------- agent access ---------- */
-
-// Command channel panel -> agent (spec 6.1). The agent has no inbound listener; every call is an executeScript.
-export async function callAgent(tabId, name, args, { frameIds, allFrames } = {}) {
-  const target = frameIds ? { tabId, frameIds } : { tabId, allFrames: !!allFrames };
-  const out = await chrome.scripting.executeScript({
-    target,
-    func: (n, a) => (globalThis.__PageSum ? globalThis.__PageSum.call(n, a) : { ok: false, error: { code: 'no_agent' } }),
-    args: [name, args ?? {}],
-  });
-  return out.map((r) => ({ frameId: r.frameId, ...(r.result || { ok: false, error: { code: 'no_result' } }) }));
-}
-
-// Throws when the tab can't be read (no activeTab grant and no host permission, or a restricted page).
-export async function ensureAgent(tabId, { allFrames = false } = {}) {
-  try {
-    const r = await callAgent(tabId, 'ping', {}, { frameIds: [0] });
-    if (r[0] && r[0].ok) return;
-  } catch { /* not injected yet, or no access: injecting below throws if there is truly no access */ }
-  const target = { tabId, allFrames };
-  await chrome.scripting.executeScript({ target, files: CONTENT_FILES });
-  await chrome.scripting.insertCSS({ target, files: CSS_FILES });
-}
+/* ---------- access helpers ---------- */
 
 export function originPattern(url) {
   try {
@@ -154,15 +146,27 @@ export function originPattern(url) {
   } catch { return null; }
 }
 
-async function extractModel(tabId, { ignoreSelection }) {
-  const maxChars = app.settings.maxChars;
-  const out = await callAgent(tabId, 'extract', {
-    ignoreSelection, maxRawChars: maxChars * 2, maxChunkChars: 600, structured: false,
-  }, { frameIds: [0] });
-  const main = out[0];
+/* ---------- extraction ---------- */
+
+async function extractModel(tabId, { ignoreSelection, frames }) {
+  const settings = app.settings;
+  const maxChars = settings.maxChars;
+  const args = {
+    ignoreSelection, maxRawChars: maxChars * 2, maxChunkChars: 600, structured: !!settings.structuredExtraction,
+  };
+  let out;
+  if (frames) {
+    try { out = await callAgent(tabId, 'extract', args, { allFrames: true }); } catch { out = null; }
+  }
+  if (!out) out = await callAgent(tabId, 'extract', args, { frameIds: [0] });
+  const main = out.find((o) => o.frameId === 0);
   if (!main || !main.ok) throw new Error((main && main.error && main.error.code) || 'no_result');
   const res = main.data;
-  const { chunks, frames } = renumberFrames([{ frameId: 0, result: res }]);
+  const perFrame = [{ frameId: 0, result: res }];
+  for (const o of out.filter((x) => x.frameId !== 0 && x.ok).sort((a, b) => a.frameId - b.frameId)) {
+    perFrame.push({ frameId: o.frameId, result: o.data });
+  }
+  const { chunks, frames: frameCount } = renumberFrames(perFrame);
   const sel = selectChunks(chunks, maxChars);
   const model = {
     title: res.title || '',
@@ -172,9 +176,10 @@ async function extractModel(tabId, { ignoreSelection }) {
     chunks: sel.chunks,
     truncated: sel.truncated || !!res.truncatedRaw,
     originalLength: sel.originalLength,
-    frames,
+    frames: frameCount,
     selectionLength: res.selectionLength || 0,
     hasPasswordField: !!res.hasPasswordField,
+    ...buildStructure(res, sel.chunks),
   };
   return { res, model, hash: chunkHash(sel.chunks) };
 }
@@ -192,12 +197,16 @@ export async function load(tabId, { ignoreSelection, force = false } = {}) {
   const superseded = () => st.loadGen !== gen;
   if (ignoreSelection !== undefined) st.ignoreSelection = !!ignoreSelection;
   abortStream(st);
+  dropCache(st);
   clearTimeout(st.autoTimer);
   st.loading = true;
   st.view = 'init';
   st.notices = [];
   st.pending = null;
   st.autoPending = false;
+  st.autoVision = false;
+  st.idleLabel = '';
+  st.media = null;
   notify(st);
   try {
     app.settings = await getSettings();
@@ -217,13 +226,15 @@ export async function load(tabId, { ignoreSelection, force = false } = {}) {
       chk = isRestrictedUrl(tab.url, { title: tab.title });
       if (!chk.ok) { setRestricted(st, chk.reason); return; }
       const kind = pageKind(tab.url);
-      if (kind === 'pdf') { setRestricted(st, MSG_PDF_UNSUPPORTED); return; } // phase 2 replaces this with the PDF flow
+      if (kind === 'pdf') { st.kind = 'pdf'; await loadPdfTab(st, tab, { force, superseded }); return; }
       st.kind = kind === 'youtube' ? 'youtube' : 'html';
     }
 
+    const extraNotices = [];
     try {
-      // Phase 2: allFrames: app.settings.readFrames, with a main-frame-only retry (spec 4.3 step 4 and 18.8).
-      await ensureAgent(tabId, { allFrames: false });
+      const inj = await ensureAgent(tabId, { allFrames: !!app.settings.readFrames });
+      st.frames = inj.frames;
+      if (inj.skipped) extraNotices.push({ key: 'frames-skipped', text: 'Embedded frames skipped.' });
     } catch (err) {
       if (superseded()) return;
       if (chk.kind === 'file') { setRestricted(st, MSG_FILE); return; }
@@ -234,7 +245,7 @@ export async function load(tabId, { ignoreSelection, force = false } = {}) {
 
     let got;
     try {
-      got = await extractModel(tabId, { ignoreSelection: st.ignoreSelection });
+      got = await extractModel(tabId, { ignoreSelection: st.ignoreSelection, frames: st.frames });
     } catch (err) {
       if (superseded()) return;
       logError(err);
@@ -242,13 +253,29 @@ export async function load(tabId, { ignoreSelection, force = false } = {}) {
       return;
     }
     if (superseded()) return;
-    const { res, model, hash } = got;
-    if (res.contentType === 'application/pdf') { setRestricted(st, MSG_PDF_UNSUPPORTED); return; }
+    got.extraNotices = extraNotices;
+    if (got.res.contentType === 'application/pdf') { st.kind = 'pdf'; await loadPdfTab(st, tab, { force, superseded }); return; }
     st.access = 'ok';
-    if (res.title) { st.title = res.title; hooks.setTitle(st); }
+    if (got.res.title) { st.title = got.res.title; hooks.setTitle(st); }
 
-    if (model.source !== 'selection' && totalChars(model) < 200) {
-      st.pending = { res, model, hash };
+    if (st.kind === 'youtube' && got.model.source !== 'selection') {
+      const vm = await toVideoModel(st, got);
+      if (superseded()) return;
+      if (vm) { got.model = vm.model; got.hash = vm.hash; }
+    }
+
+    // Vision (spec 8.8): is this page mostly a picture or canvas, or is its text tiny?
+    if (app.settings.vision !== 'off' && got.model.kind === 'html' && got.model.source !== 'selection') {
+      const hints = await readVisualHints(tabId);
+      if (superseded()) return;
+      got.offer = shouldOfferVision(hints, totalChars(got.model));
+    }
+    const autoVision = !!got.offer && app.settings.vision === 'auto' && app.settings.autoSummarize;
+
+    if (got.model.kind === 'html' && got.model.source !== 'selection' && totalChars(got.model) < 200 && !autoVision) {
+      st.pending = got;
+      st.notices = [...extraNotices];
+      if (got.offer && app.settings.vision === 'ask') addNotice(st, visionNotice(st));
       st.view = 'empty';
       return;
     }
@@ -272,15 +299,78 @@ function setNeedAccess(st, url) {
   st.view = 'needAccess';
 }
 
+function visionNotice(st) {
+  return {
+    key: 'vision-offer',
+    icon: 'camera',
+    text: 'Little readable text.',
+    action: { label: 'Read from screenshot', run: () => hooks.startVision(st) },
+  };
+}
+
+// YouTube watch page: the video itself goes to Gemini by URL, the page text (title, description) rides along.
+async function toVideoModel(st, got) {
+  const id = videoIdFromUrl(got.res.url || st.url);
+  if (!id) return null;
+  const info = await readVideoInfo(st.tabId);
+  const sel = selectChunks(got.model.chunks, VIDEO_TEXT_CHARS);
+  return {
+    hash: fnv1a(`video:${id}`),
+    model: {
+      title: got.model.title, url: got.model.url, source: 'video', kind: 'video',
+      chunks: sel.chunks, truncated: false, originalLength: sel.originalLength, frames: got.model.frames,
+      selectionLength: 0, hasPasswordField: false,
+      video: { id, canonical: canonicalVideoUrl(id), duration: info ? info.duration : 0 },
+    },
+  };
+}
+
+// PDF tab: fetch the bytes (no quota used), check the size, then summarise like any page. Nothing is injected
+// into the Chrome PDF viewer unless the panel's own fetch fails (fetchSelfPdf fallback).
+async function loadPdfTab(st, tab, { force, superseded }) {
+  const url = tab.url || st.url;
+  let pdf;
+  try {
+    pdf = await loadPdf(st.tabId, url);
+  } catch (err) {
+    if (superseded()) return;
+    if (err instanceof PdfAccessError) {
+      if (err.kind === 'file') setRestricted(st, MSG_FILE); else setNeedAccess(st, url);
+      return;
+    }
+    const e = err instanceof GeminiError ? err : new GeminiError('network', { message: err && err.message });
+    if (!(err instanceof GeminiError)) logError(err);
+    // Show the problem as an error card in the summary view. A page stub keeps show() from reloading on every visit.
+    st.access = 'ok';
+    st.urlKey = normalizeUrlKey(url);
+    st.page = { title: tab.title || '', url, source: 'pdf', kind: 'pdf', chunks: [], truncated: false, originalLength: 0, frames: 0, selectionLength: 0, hasPasswordField: false, pdf: { bytes: 0, pages: null, level: undefined } };
+    st.conv = newConv();
+    st.conv.summaryError = { err: e, retry: e.code === 'too_large' ? null : () => load(st.tabId) };
+    st.view = 'summary';
+    return;
+  }
+  if (superseded()) return;
+  st.access = 'ok';
+  st.media = { kind: 'pdf', ...pdf };
+  const model = {
+    title: tab.title || '', url, source: 'pdf', kind: 'pdf', chunks: [], truncated: false, originalLength: 0,
+    frames: 0, selectionLength: 0, hasPasswordField: false,
+    pdf: { bytes: pdf.bytes, pages: pdf.pages, level: pdf.level },
+  };
+  await continueWith(st, { res: { url, title: model.title }, model, hash: fnv1a(`pdf:${pdf.bytes}:${pdf.pages}`), extraNotices: [] }, { force, superseded });
+}
+
 // "Try anyway" on the empty view, and the normal path once a page has enough text.
-export async function continueWith(st, { res, model, hash }, { force = false, superseded = () => false } = {}) {
+export async function continueWith(st, got, { force = false, superseded = () => false } = {}) {
+  const { res, model, hash } = got;
+  const settings = app.settings;
   const url = res.url || st.url || '';
   st.page = model;
   st.hash = hash;
   st.urlKey = normalizeUrlKey(url);
   st.stale = false;
   st.conv = newConv();
-  st.notices = [];
+  st.notices = [...(got.extraNotices || [])];
   if (model.source === 'selection') {
     st.notices.push({
       key: 'selection',
@@ -288,10 +378,10 @@ export async function continueWith(st, { res, model, hash }, { force = false, su
       action: { label: 'Use whole page', run: () => load(st.tabId, { ignoreSelection: true }) },
     });
   }
-  if (model.truncated) {
+  if (model.truncated && model.kind === 'html') {
     st.notices.push({ key: 'truncated', text: `Long page: only the first ${totalChars(model)} of ${model.originalLength} characters were used.` });
   }
-  if (pageKind(url) === 'youtube') {
+  if (model.kind === 'html' && pageKind(url) === 'youtube') {
     st.notices.push({ key: 'youtube', text: "Video transcripts aren't read. This summary covers the visible page text (title, description, comments)." });
   }
 
@@ -310,7 +400,7 @@ export async function continueWith(st, { res, model, hash }, { force = false, su
   let useLen = null;
   if (entry) {
     if (entry.chatLength && summaries[entry.chatLength]) useLen = entry.chatLength;
-    else if (summaries[app.settings.defaultLength]) useLen = app.settings.defaultLength;
+    else if (summaries[settings.defaultLength]) useLen = settings.defaultLength;
   }
   if (useLen) {
     st.conv.summaries = summaries;
@@ -321,13 +411,25 @@ export async function continueWith(st, { res, model, hash }, { force = false, su
     st.view = 'summary';
     return;
   }
+  const autoVision = !!got.offer && settings.vision === 'auto' && settings.autoSummarize;
+  if (got.offer && settings.vision === 'ask') addNotice(st, visionNotice(st));
   if (force) {
     st.view = 'summary';
-    hooks.startSummary(st, app.settings.defaultLength);
+    hooks.startSummary(st, settings.defaultLength);
     return;
   }
-  if (app.settings.autoSummarize && !isSensitive(st).sensitive) {
+  // Long video: asking first protects the free quota (about 100 tokens per second of video).
+  if (model.kind === 'video' && settings.youtubeMode === 'video' && model.video.duration > LONG_VIDEO_SECONDS) {
+    const mins = Math.round(model.video.duration / 60);
+    const k = Math.round(estimateVideoTokens(model.video.duration) / 1000);
+    addNotice(st, { key: 'long-video', icon: 'info', text: `This video is ${mins} min (about ${k}k tokens of your free quota).` });
+    st.idleLabel = 'Summarise video';
+    st.view = 'idle';
+    return;
+  }
+  if (settings.autoSummarize && !isSensitive(st).sensitive) {
     st.autoPending = true;     // fires after the tab has stayed shown for AUTO_DELAY_MS (armAuto)
+    st.autoVision = autoVision;
     st.view = 'init';
   } else {
     st.view = 'idle';
@@ -360,7 +462,7 @@ export function armAuto(st) {
     if (!st.autoPending || !isShown(st) || st.loading || !st.page) return;
     st.autoPending = false;
     st.view = 'summary';
-    hooks.startSummary(st, app.settings.defaultLength);
+    if (st.autoVision) { st.autoVision = false; hooks.startVision(st); } else hooks.startSummary(st, app.settings.defaultLength);
   }, wait);
 }
 
@@ -375,7 +477,7 @@ export function show(tabId, activatedAt = Date.now()) {
   hooks.render(st);
   if (st.loading) return;
   const reload = !st.page || ['needKey', 'restricted', 'needAccess', 'empty'].includes(st.view);
-  if (reload) { load(tabId); return; }
+  if (reload && !(st.page && st.page.kind === 'pdf')) { load(tabId); return; }
   armAuto(st);
   refresh(st);
 }
@@ -383,16 +485,19 @@ export function show(tabId, activatedAt = Date.now()) {
 const STALE_KEY = 'stale';
 
 // Silent re-extraction when a tab is shown again or its content may have changed. Costs no quota.
+// Only for ordinary pages: a PDF, a video and a screenshot don't change under the summary.
 export async function refresh(st) {
-  if (st.refreshing || st.loading || !st.page || st.ctrl) return;
+  if (st.refreshing || st.loading || !st.page || st.ctrl || st.page.kind !== 'html') return;
   st.refreshing = true;
   let changed = false;
   try {
-    await ensureAgent(st.tabId);
-    const got = await extractModel(st.tabId, { ignoreSelection: st.page.source !== 'selection' });
+    const inj = await ensureAgent(st.tabId, { allFrames: !!(app.settings && app.settings.readFrames) });
+    st.frames = inj.frames;
+    const got = await extractModel(st.tabId, { ignoreSelection: st.page.source !== 'selection', frames: st.frames });
     if (!st.page || st.ctrl || st.loading) return;
     if (got.hash === st.hash) {
-      st.page = { ...st.page, chunks: got.model.chunks };     // same text: refresh local ids so highlights stay exact
+      // same text: refresh local ids so highlights stay exact; structure (links, outline ids) follows the new ids
+      st.page = { ...st.page, ...got.model, source: st.page.source };
       return;                                                  // nothing visible changed: no redraw
     }
     const hasConversation = Object.keys(st.conv.summaries).length > 0;
@@ -474,10 +579,10 @@ export async function initTabs(h) {
     const st = states.get(tabId);
     if (!st) return;
     abortStream(st);
+    dropCache(st);
     clearTimeout(st.autoTimer);
     clearTimeout(navTimers.get(tabId));
     navTimers.delete(tabId);
-    // Phase 2: delete this tab's explicit cache best-effort here.
     states.delete(tabId);
     if (app.shownTabId === tabId) app.shownTabId = null;
   });

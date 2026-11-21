@@ -1,5 +1,5 @@
 // PageSum page agent: core. CLASSIC script, injected on demand with chrome.scripting.executeScript({ files }).
-// Order: core.js, extract.js, highlight.js (phase 3 adds guide.js, phase 2 adds media.js).
+// Order: core.js, extract.js, highlight.js, media.js (phase 3 adds guide.js).
 // Everything shares globalThis.__PageSum, which lives in the extension's isolated world: the page cannot see it.
 // The agent has no inbound message listener (spec B5). The panel calls __PageSum.call(name, args) via executeScript.
 // The agent never acts on the page (spec B11): no clicks, no typing, no navigation. A static test enforces it.
@@ -252,13 +252,20 @@
     return { ok: false, error: { code: code, message: message || code } };
   }
 
-  // Never throws. Returns { ok: true, data } or { ok: false, error: { code, message } }.
+  // Never throws. Returns { ok: true, data } or { ok: false, error: { code, message } } (a Promise of that for async handlers).
   PS.call = function (name, args) {
     try {
       if (PS.dead) return fail('dead');
       if (typeof name !== 'string' || !HAS.call(PS.handlers, name)) return fail('unknown_command', 'Unknown command');
       var a = args && typeof args === 'object' && !Array.isArray(args) ? args : {};
       var data = PS.handlers[name](a);
+      if (data && typeof data.then === 'function') {
+        // Async handler (fetchSelfPdf): executeScript waits for the promise.
+        return data.then(
+          function (d) { return { ok: true, data: d === undefined ? {} : d }; },
+          function (e) { return fail('exception', U.str(e && e.message, 200)); }
+        );
+      }
       return { ok: true, data: data === undefined ? {} : data };
     } catch (e) {
       return fail('exception', U.str(e && e.message, 200));

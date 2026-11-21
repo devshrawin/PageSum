@@ -1,17 +1,21 @@
 // Page tab: summary, chat and click-to-source citations (v1 logic moved here, now on chunks and per-tab state).
 // It draws the state of the SHOWN tab. Streams for other tabs keep writing into their own TabState (spec 4.1).
 import { saveSettings, putCacheEntry } from '../lib/storage.js';
-import { buildSystemPrompt, buildContents } from '../lib/prompts.js';
-import { streamGenerate, buildRequestBody } from '../lib/gemini.js';
 import { GeminiError, redactKey } from '../lib/errors.js';
+import { parseTimecode } from '../lib/youtube.js';
+import { normalizeUrlKey, fnv1a } from '../lib/text.js';
 import { DEFAULT_MODEL } from '../lib/models.js';
 import { renderMarkdown } from '../lib/markdown.js';
-import { chunkResolver, stripPartialCite, stripCitations } from '../lib/citations.js';
-import { $, el, announce, toast, copyText, buildErrorCard } from './dom.js';
 import {
-  app, shownState, isShown, load, tryAnyway, abortStream, enforceStreamLimit, addNotice,
+  chunkResolver, pdfResolver, videoResolver, stripPartialCite, stripCitations,
+} from '../lib/citations.js';
+import { $, el, announce, toast, copyText, buildErrorCard, icon } from './dom.js';
+import {
+  app, shownState, isShown, load, tryAnyway, abortStream, enforceStreamLimit, addNotice, removeNotice, dropCache,
   callAgent, ensureAgent,
 } from './tabs.js';
+import { runRequest } from './request.js';
+import { captureScreenshot } from './media.js';
 
 const VIEWS = ['init', 'needKey', 'restricted', 'needAccess', 'empty', 'idle', 'summary'];
 const CUT_NOTE = '\n\n*(Answer cut off.)*';
@@ -41,10 +45,15 @@ function cancelRender() {
 }
 
 const resolverCache = new WeakMap();
+// Which citation ids are valid for this tab: chunk ids for pages, p1..pN for a PDF, times for a video.
 function resolverFor(st) {
   if (!app.settings || !app.settings.citations || !st.page) return undefined;
-  let r = resolverCache.get(st.page.chunks);
-  if (!r) { r = chunkResolver(st.page.chunks); resolverCache.set(st.page.chunks, r); }
+  const page = st.page;
+  if (page.kind === 'image') return undefined;
+  if (page.kind === 'pdf') return pdfResolver(page.pdf && page.pdf.pages);
+  if (page.kind === 'video') return videoResolver(page.video && page.video.duration);
+  let r = resolverCache.get(page.chunks);
+  if (!r) { r = chunkResolver(page.chunks); resolverCache.set(page.chunks, r); }
   return r;
 }
 
@@ -90,13 +99,13 @@ function renderNotices(st) {
   box.replaceChildren();
   if (!st) return;
   for (const n of st.notices) {
-    const row = el('div', { class: 'notice' }, el('span', { class: 'txt', text: n.text }));
+    const row = el('div', { class: 'notice' }, n.icon ? icon(n.icon) : null, el('span', { class: 'txt', text: n.text }));
     if (n.action) {
       const b = el('button', { type: 'button', class: 'link', text: n.action.label });
       b.addEventListener('click', n.action.run);
       row.appendChild(b);
     }
-    const x = el('button', { type: 'button', class: 'btn btn-icon btn-sm', 'aria-label': 'Dismiss notice', text: '×' });
+    const x = el('button', { type: 'button', class: 'btn btn-icon btn-sm', 'aria-label': 'Dismiss notice' }, icon('close'));
     x.addEventListener('click', () => {
       st.notices = st.notices.filter((m) => m !== n);
       renderNotices(st);
@@ -121,6 +130,7 @@ export function renderState(st) {
   setView(st.view);
   if (st.view === 'restricted') $('restrictedText').textContent = st.restrictedReason;
   else if (st.view === 'needAccess') renderNeedAccess(st);
+  else if (st.view === 'idle') $('summariseBtn').textContent = st.idleLabel || 'Summarise this page';
   else if (st.view === 'needKey') { $('keyMsg').textContent = ''; $('keyInput').focus(); }
   else if (st.view === 'summary') renderSummaryView(st);
   updateModelLabel();
@@ -243,7 +253,7 @@ function scrollBottom() {
 /* ---------- cache ---------- */
 
 async function saveEntry(st) {
-  if (!st.urlKey || !st.page) return;
+  if (!st.urlKey || !st.page || st.page.kind === 'image') return;   // a screenshot summary is not worth keeping
   try {
     await putCacheEntry(st.urlKey, {
       textHash: st.hash,
@@ -259,11 +269,6 @@ async function saveEntry(st) {
 
 /* ---------- streaming ---------- */
 
-function citeSettings() {
-  const on = !!(app.settings && app.settings.citations);
-  return { on, system: (language) => buildSystemPrompt(language, { citations: on, citeStyle: on ? 'chunk' : 'none' }) };
-}
-
 // Called by tabs.js when it aborts a background stream to stay within the concurrency limit.
 export function abortUi(st) {
   if (st.conv.summaryRaw && !st.conv.summaries[st.conv.length]) st.conv.summaryNote = '(stopped)';
@@ -272,6 +277,7 @@ export function abortUi(st) {
 
 export async function startSummary(st, length) {
   abortStream(st);
+  dropCache(st);                       // a new summary starts a new conversation: the old context cache is useless
   enforceStreamLimit(st);
   const settings = app.settings;
   const conv = st.conv;
@@ -287,13 +293,9 @@ export async function startSummary(st, length) {
   st.ctrl = ctrl;
   st.streamAt = Date.now();
   if (isShown(st)) { setView('summary'); renderSummaryView(st); }
-  const cite = citeSettings();
   try {
-    const contents = buildContents({ page: st.page, nonce: conv.nonce, length, summary: null, messages: [], citeIds: cite.on });
-    const r = await streamGenerate({
-      apiKey: settings.apiKey,
-      model: settings.model,
-      body: buildRequestBody({ system: cite.system(settings.language), contents }),
+    const r = await runRequest(st, {
+      settings, windowId: app.windowId, kind: 'summary', length,
       signal: ctrl.signal,
       onText: (t) => {
         if (st.ctrl !== ctrl) return;
@@ -325,6 +327,40 @@ export async function startSummary(st, length) {
     updateControls(st);
     if (canChat(st)) $('question').focus();
   }
+}
+
+// "Read from screenshot" (spec 8.8): capture the visible area of the shown tab, then summarise it like a page.
+// The screenshot stays in memory (st.media) so follow-up questions reuse it. Nothing is cached or saved.
+export async function startVision(st) {
+  const base = st.page || (st.pending && st.pending.model);
+  if (!base) return;
+  abortStream(st);
+  let shot;
+  try {
+    shot = await captureScreenshot(app.windowId);
+  } catch (err) {
+    // capture_denied: show the card in the summary view with a retry
+    st.page = st.page || { ...base, chunks: [], kind: 'image', source: 'screenshot' };
+    st.conv = { ...st.conv, summaryError: { err: asGeminiError(err), retry: () => startVision(st) } };
+    st.view = 'summary';
+    if (isShown(st)) renderState(st);
+    return;
+  }
+  const url = base.url || st.url;
+  st.page = { ...base, kind: 'image', source: 'screenshot', chunks: [], truncated: false, originalLength: 0, selectionLength: 0, meta: undefined, outline: undefined, links: undefined, forms: undefined };
+  st.kind = 'image';
+  st.media = { kind: 'image', ...shot };
+  st.hash = fnv1a(`shot:${shot.bytes}`);
+  st.urlKey = st.urlKey || normalizeUrlKey(url);
+  st.access = 'ok';
+  st.pending = null;
+  st.stale = false;
+  st.autoPending = false;
+  st.conv.summaries = {};
+  st.conv.summaryError = null;
+  removeNotice(st, 'vision-offer');
+  addNotice(st, { key: 'screenshot', icon: 'camera', text: 'Based on a screenshot of the visible area only.' });
+  await startSummary(st, app.settings.defaultLength);
 }
 
 function onLengthPick(len) {
@@ -368,17 +404,11 @@ async function runAnswer(st, q) {
   st.ctrl = ctrl;
   st.streamAt = Date.now();
   if (isShown(st)) { renderChat(st); updateControls(st); scrollBottom(); }
-  const cite = citeSettings();
   const length = conv.chatLength || conv.length;
   try {
-    const contents = buildContents({
-      page: st.page, nonce: conv.nonce, length, summary: conv.summaries[length],
-      messages: [...conv.messages, { role: 'user', text: q }], citeIds: cite.on,
-    });
-    const r = await streamGenerate({
-      apiKey: settings.apiKey,
-      model: settings.model,
-      body: buildRequestBody({ system: cite.system(settings.language), contents }),
+    const r = await runRequest(st, {
+      settings, windowId: app.windowId, kind: 'answer', length, summary: conv.summaries[length],
+      messages: [...conv.messages, { role: 'user', text: q }],
       signal: ctrl.signal,
       onText: (t) => {
         if (st.ctrl !== ctrl) return;
@@ -424,24 +454,56 @@ function autoGrow() {
 
 /* ---------- click to source ---------- */
 
+const NO_REACH = "Can't reach the page. Click the PageSum icon while on this tab.";
+
+// Opens a PDF at a page: the Chrome PDF viewer honours #page=N, and no permission is needed.
+async function goToPdfPage(st, n) {
+  const base = String(st.url || st.page.url || '').split('#')[0];
+  if (!base) { toast(NO_REACH); return; }
+  try { await chrome.tabs.update(st.tabId, { url: `${base}#page=${n}` }); } catch { toast(NO_REACH); }
+}
+
+async function seekVideo(st, timecode) {
+  const seconds = parseTimecode(timecode);
+  if (seconds == null) return;
+  try {
+    let out = await callAgent(st.tabId, 'seek', { seconds }, { frameIds: [0] });
+    if (out[0] && !out[0].ok && out[0].error && out[0].error.code === 'no_agent') {
+      await ensureAgent(st.tabId);
+      out = await callAgent(st.tabId, 'seek', { seconds }, { frameIds: [0] });
+    }
+    if (!out[0] || !out[0].ok) toast(NO_REACH);
+  } catch { toast(NO_REACH); }
+}
+
 async function onCite(id) {
   const st = shownState();
   if (!st || !st.page) return;
-  const chunk = st.page.chunks.find((c) => c.id === id);
-  if (!chunk) { toast("That passage isn't on the page any more."); return; }
+  const page = st.page;
+  if (page.kind === 'pdf') {
+    const m = /^p(\d+)$/.exec(id);
+    if (m) goToPdfPage(st, Number(m[1]));
+    return;
+  }
+  if (page.kind === 'video') {
+    if (id.startsWith('t=')) seekVideo(st, id.slice(2));
+    return;
+  }
+  const chunk = page.chunks.find((c) => c.id === id);
+  if (!chunk || chunk.pseudo) { toast("That passage isn't on the page any more."); return; }
   const args = { localId: chunk.localId, text: chunk.text };
   const opts = { frameIds: [chunk.frameId] };
   try {
     let out = await callAgent(st.tabId, 'highlight', args, opts);
     if (out[0] && !out[0].ok && out[0].error && out[0].error.code === 'no_agent') {
-      await ensureAgent(st.tabId);                 // the page was reloaded since the summary
+      await ensureAgent(st.tabId, { allFrames: !!st.frames });      // the page was reloaded since the summary
       out = await callAgent(st.tabId, 'highlight', args, opts);
     }
     const r = out[0];
-    if (!r || !r.ok) toast("Can't reach the page. Click the PageSum icon while on this tab.");
+    if (!r || !r.ok) toast(NO_REACH);
     else if (r.data.found === 'none') toast("That passage isn't on the page any more.");
   } catch {
-    toast("Can't reach the page. Click the PageSum icon while on this tab.");
+    toast(NO_REACH);
   }
 }
 
@@ -530,6 +592,7 @@ export function initPage() {
     if (!st || st.ctrl) return;
     st.conv.messages = [];
     st.conv.pendingAnswer = null;
+    dropCache(st);
     renderChat(st);
     saveEntry(st);
     $('question').focus();

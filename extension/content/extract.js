@@ -54,8 +54,10 @@
 
     function done() { return truncated; }
 
-    function emit(text, segments, kind, level) {
-      var pieces = text.length > ctx.maxChunk ? U.splitSentences(text, ctx.maxChunk) : [{ text: text, start: 0, end: text.length }];
+    // extra: { noSplit, span } (table chunks are never cut at sentence ends; span = first/last text node for highlighting)
+    function emit(text, segments, kind, level, extra) {
+      var ex = extra || {};
+      var pieces = text.length > ctx.maxChunk && !ex.noSplit ? U.splitSentences(text, ctx.maxChunk) : [{ text: text, start: 0, end: text.length }];
       for (var p = 0; p < pieces.length; p++) {
         var pc = pieces[p];
         var last = blocks.length ? blocks[blocks.length - 1] : null;
@@ -71,7 +73,7 @@
         var blk = { localId: id, kind: kind, text: pc.text };
         if (level) blk.level = level;
         blocks.push(blk);
-        store.set(id, { text: pc.text, kind: kind, segments: ps });
+        store.set(id, { text: pc.text, kind: kind, segments: ps, span: ex.span || null });
         total += pc.text.length;
       }
       if (total > ctx.maxRaw) truncated = true;
@@ -141,6 +143,119 @@
         if (done()) return;
         walk(kids[i]);
       }
+      // Open shadow roots are read after the element's light children. Closed roots cannot be read.
+      if (ctx.structured && el.shadowRoot && el.shadowRoot.childNodes) {
+        var sk = el.shadowRoot.childNodes;
+        for (var j = 0; j < sk.length; j++) {
+          if (done()) return;
+          walk(sk[j]);
+        }
+      }
+    }
+
+    // ---- structured: tables as markdown (spec 7.5) ----
+
+    var layoutDepth = 0;
+    var links = [];
+    var linkSeen = {};
+
+    function noteLink(a) {
+      if (links.length >= 40) return;
+      var raw = a.getAttribute('href');
+      if (!raw) return;
+      var abs;
+      try { abs = new URL(raw, location.href); } catch (e) { return; }
+      if (abs.protocol !== 'http:' && abs.protocol !== 'https:') return;
+      var href = abs.href;
+      if (linkSeen[href]) return;
+      var text = U.collapse(a.textContent || '').trim();
+      if (!text) text = U.collapse(a.getAttribute('aria-label') || '').trim();
+      linkSeen[href] = true;
+      links.push({ text: text.slice(0, 80), href: href });
+    }
+
+    function cellText(cell, nodes) {
+      var out = '';
+      (function g(n) {
+        if (n.nodeType === 3) {
+          var v = U.collapse(n.nodeValue || '');
+          if (v) { nodes.push(n); out += v; }
+          return;
+        }
+        if (n.nodeType !== 1) return;
+        var t = (n.tagName || '').toUpperCase();
+        if (SKIP_TAGS[t] && t !== 'BUTTON') return;
+        if (n.hasAttribute('hidden') || n.getAttribute('aria-hidden') === 'true' || !isVisible(n)) return;
+        var kids = n.childNodes;
+        for (var i = 0; i < kids.length; i++) g(kids[i]);
+      })(cell);
+      out = out.replace(/\s+/g, ' ').trim().replace(/\|/g, '\\|');
+      return out.length > 200 ? out.slice(0, 200) : out;
+    }
+
+    // Returns [{ text, first, last }] chunks of at most 20 body rows (header repeated), or null for layout tables.
+    function tableChunks(table) {
+      var rows = [];
+      var nested = false;
+      (function w(n) {
+        var kids = n.childNodes;
+        for (var i = 0; i < kids.length; i++) {
+          var k = kids[i];
+          if (k.nodeType !== 1) continue;
+          var t = k.tagName.toUpperCase();
+          if (t === 'TABLE') { nested = true; return; }
+          if (t === 'TR') { if (!shouldSkip(k, root, ctx.lenient)) rows.push(k); } else w(k);
+          if (nested) return;
+        }
+      })(table);
+      var hasTable = function (n) {
+        for (var i = 0; i < n.childNodes.length; i++) {
+          var k = n.childNodes[i];
+          if (k.nodeType === 1 && (k.tagName === 'TABLE' || hasTable(k))) return true;
+        }
+        return false;
+      };
+      if (!nested) for (var ri = 0; ri < rows.length; ri++) if (hasTable(rows[ri])) { nested = true; break; }
+      if (nested || rows.length < 2) return null;
+      var cellsOf = function (tr) {
+        var out = [];
+        for (var i = 0; i < tr.childNodes.length; i++) {
+          var c = tr.childNodes[i];
+          if (c.nodeType === 1 && (c.tagName === 'TD' || c.tagName === 'TH')) out.push(c);
+        }
+        return out;
+      };
+      var grid = rows.map(function (tr) {
+        var nodes = [];
+        var cells = cellsOf(tr).map(function (c) { return cellText(c, nodes); });
+        return { cells: cells, nodes: nodes, tr: tr, th: cellsOf(tr).length > 0 && cellsOf(tr).every(function (c) { return c.tagName === 'TH'; }) };
+      });
+      var cols = 0;
+      grid.forEach(function (r) { cols = Math.max(cols, r.cells.length); });
+      if (cols < 2) return null;
+      var header = null;
+      var body = grid;
+      var inThead = grid[0].tr.parentNode && grid[0].tr.parentNode.tagName === 'THEAD';
+      if (inThead || grid[0].th) { header = grid[0]; body = grid.slice(1); }
+      var head = [];
+      for (var c = 0; c < cols; c++) head.push(header && header.cells[c] ? header.cells[c] : 'Column ' + (c + 1));
+      var line = function (cells) {
+        var cs = [];
+        for (var i = 0; i < cols; i++) cs.push(cells[i] || '');
+        return '| ' + cs.join(' | ') + ' |';
+      };
+      var sep = '| ' + head.map(function () { return '---'; }).join(' | ') + ' |';
+      var out = [];
+      for (var start = 0; start < body.length || (start === 0 && !body.length); start += 20) {
+        var part = body.slice(start, start + 20);
+        var nodes = [];
+        if (start === 0 && header) nodes = nodes.concat(header.nodes);
+        part.forEach(function (r) { nodes = nodes.concat(r.nodes); });
+        var text = [line(head), sep].concat(part.map(function (r) { return line(r.cells); })).join('\n');
+        out.push({ text: text, first: nodes[0] || null, last: nodes[nodes.length - 1] || null });
+        if (!body.length) break;
+      }
+      return out;
     }
 
     function walk(node) {
@@ -159,6 +274,30 @@
       var tag = node.tagName.toUpperCase();
 
       if (tag === 'PRE') { walkPre(node); return; }
+      if (ctx.structured && tag === 'A' && node.hasAttribute('href')) noteLink(node);
+      if (ctx.structured && tag === 'TABLE') {
+        var tc = tableChunks(node);
+        if (tc) {
+          flush();
+          for (var q = 0; q < tc.length && !done(); q++) {
+            emit(tc[q].text, [], 'table', 0, { noSplit: true, span: tc[q].first && tc[q].last ? { first: tc[q].first, last: tc[q].last } : null });
+          }
+          return;
+        }
+        // Layout table (one column, or nested tables): its rows and cells read as plain paragraphs.
+        layoutDepth++;
+        flush();
+        walkChildren(node);
+        flush();
+        layoutDepth--;
+        return;
+      }
+      if (layoutDepth > 0 && (tag === 'TR' || tag === 'TD' || tag === 'TH')) {
+        flush();
+        walkChildren(node);
+        flush();
+        return;
+      }
       if (/^H[1-6]$/.test(tag)) {
         flush();
         kinds.push({ kind: 'h', level: Number(tag.charAt(1)) });
@@ -193,7 +332,7 @@
 
     walk(root);
     flush();
-    return { blocks: blocks, store: store, truncated: truncated, total: total };
+    return { blocks: blocks, store: store, truncated: truncated, total: total, links: links };
   }
 
   function pickRoot() {
@@ -219,12 +358,107 @@
     return { root: root, source: source };
   }
 
+  /* ---------- structured extras (spec 7.5): metadata and form field labels ---------- */
+
+  function metaContent(sel) {
+    var m = null;
+    try { m = document.querySelector(sel); } catch (e) { m = null; }
+    return m ? U.collapse(m.getAttribute('content') || '').trim().slice(0, 300) : '';
+  }
+
+  function readMeta() {
+    var canonical = '';
+    try {
+      var l = document.querySelector('link[rel="canonical"]');
+      var h = l ? String(l.getAttribute('href') || '') : '';
+      if (h) {
+        var u = new URL(h, location.href);
+        if (u.protocol === 'http:' || u.protocol === 'https:') canonical = u.href.slice(0, 300);
+      }
+    } catch (e) { canonical = ''; }
+    return {
+      description: metaContent('meta[name="description"]'),
+      siteName: metaContent('meta[property="og:site_name"]'),
+      author: metaContent('meta[name="author"]'),
+      published: metaContent('meta[property="article:published_time"]'),
+      ogType: metaContent('meta[property="og:type"]'),
+      canonical: canonical,
+    };
+  }
+
+  // Label of a form control, in this order: aria-label, aria-labelledby, label[for], wrapping label,
+  // placeholder, title, alt of a child image, own text. Never reads what the user typed.
+  // Phase 3 (guide) reuses this through PS.util.makeLabeler.
+  U.makeLabeler = function () {
+    var byFor = null;
+    function labelMap() {
+      if (byFor) return byFor;
+      byFor = {};
+      (function w(n) {
+        if (n.nodeType !== 1) return;
+        if (n.tagName === 'LABEL' && n.getAttribute('for') && byFor[n.getAttribute('for')] === undefined) {
+          byFor[n.getAttribute('for')] = U.collapse(n.textContent || '').trim();
+        }
+        for (var i = 0; i < n.childNodes.length; i++) w(n.childNodes[i]);
+      })(document.body);
+      return byFor;
+    }
+    return function (el) {
+      var t = U.collapse(el.getAttribute('aria-label') || '').trim();
+      if (!t) {
+        var ids = String(el.getAttribute('aria-labelledby') || '').split(/\s+/).filter(Boolean);
+        if (ids.length && document.getElementById) {
+          t = ids.map(function (id) {
+            var r = document.getElementById(id);
+            return r ? U.collapse(r.textContent || '').trim() : '';
+          }).filter(Boolean).join(' ');
+        }
+      }
+      if (!t && el.id) t = labelMap()[el.id] || '';
+      if (!t && el.closest) {
+        var wrap = el.closest('label');
+        if (wrap) t = U.collapse(wrap.textContent || '').trim();
+      }
+      if (!t) t = U.collapse(el.getAttribute('placeholder') || '').trim();
+      if (!t) t = U.collapse(el.getAttribute('title') || '').trim();
+      if (!t) {
+        var img = null;
+        for (var i = 0; i < el.childNodes.length; i++) if (el.childNodes[i].tagName === 'IMG') { img = el.childNodes[i]; break; }
+        if (img) t = U.collapse(img.getAttribute('alt') || '').trim();
+      }
+      if (!t) t = U.collapse(el.textContent || '').trim();
+      return t.slice(0, 80);
+    };
+  };
+
+  var FIELD_SKIP_TYPES = { hidden: true, submit: true, button: true, image: true, reset: true };
+
+  function readForms() {
+    var labeler = U.makeLabeler();
+    var out = [];
+    (function w(n) {
+      if (out.length >= 40 || n.nodeType !== 1) return;
+      var tag = n.tagName;
+      if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'NOSCRIPT' || tag === 'TEMPLATE') return;
+      if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') {
+        var type = tag === 'INPUT' ? String(n.getAttribute('type') || 'text').toLowerCase() : tag.toLowerCase();
+        if (!FIELD_SKIP_TYPES[type] && !n.hasAttribute('hidden') && isVisible(n)) {
+          out.push({ label: labeler(n), type: type, required: n.hasAttribute('required') || n.getAttribute('aria-required') === 'true' });
+        }
+        return;
+      }
+      for (var i = 0; i < n.childNodes.length; i++) w(n.childNodes[i]);
+    })(document.body);
+    return out;
+  }
+
   PS.register('extract', function (args) {
     var maxRaw = U.num(args.maxRawChars, 1000, 4000000, 120000);
     var maxChunk = U.num(args.maxChunkChars, 100, 5000, 600);
     var ignoreSelection = !!args.ignoreSelection;
+    var structured = !!args.structured;
 
-    var sel = window.getSelection ? window.getSelection() : null;
+    var sel =window.getSelection ? window.getSelection() : null;
     var selText = sel ? String(sel).trim() : '';
 
     var title = (document.title || '').trim();
@@ -242,6 +476,7 @@
       contentType: document.contentType,
       selectionLength: selText.length,
       hasPasswordField: pw,
+      viewport: { w: Math.round(Number(window.innerWidth) || 0), h: Math.round(Number(window.innerHeight) || 0) },
       source: 'body',
       blocks: [],
       truncatedRaw: false,
@@ -271,12 +506,23 @@
       result.source = 'selection';
     } else {
       var pick = pickRoot();
-      out = collectBlocks(pick.root, { maxRaw: maxRaw, maxChunk: maxChunk });
+      out = collectBlocks(pick.root, { maxRaw: maxRaw, maxChunk: maxChunk, structured: structured });
       result.source = pick.source;
       if (out.total < 200 && pick.root !== document.body) {
-        out = collectBlocks(document.body, { maxRaw: maxRaw, maxChunk: maxChunk });
+        out = collectBlocks(document.body, { maxRaw: maxRaw, maxChunk: maxChunk, structured: structured });
         result.source = 'body';
       }
+      if (structured) {
+        result.meta = readMeta();
+        result.links = out.links || [];
+        result.forms = readForms();
+      }
+    }
+    if (structured && result.source !== 'selection') {
+      result.outline = out.blocks
+        .filter(function (b) { return b.kind === 'h' && b.level <= 4; })
+        .slice(0, 60)
+        .map(function (b) { return { level: b.level, text: b.text.slice(0, 200), localId: b.localId }; });
     }
 
     PS.store = { gen: ++PS.gen, blocks: out.store };

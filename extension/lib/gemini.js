@@ -1,6 +1,6 @@
 // Gemini REST client (streaming). fetch is injectable for tests.
 import { createSseParser } from './sse.js';
-import { GeminiError, mapHttpError, mapFetchError, mapFinishReason } from './errors.js';
+import { GeminiError, mapHttpError, mapFetchError, mapFinishReason, mapVideoError } from './errors.js';
 import { filterModelList } from './models.js';
 
 export const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta';
@@ -45,7 +45,7 @@ export function extractChunk(json) {
   };
 }
 
-function headers(apiKey) {
+export function headers(apiKey) {
   return { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey };
 }
 
@@ -84,7 +84,7 @@ export async function streamGenerate({
     if (!res.ok) {
       let t = '';
       try { t = await res.text(); } catch { /* ignore */ }
-      throw mapHttpError(res.status, t);
+      throw mapVideoError(mapHttpError(res.status, t), body);
     }
 
     let text = '';

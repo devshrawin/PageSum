@@ -61,11 +61,12 @@ test('every file the manifest references exists, and so does every injected cont
   ]);
   for (const r of refs) assert.ok(fs.existsSync(path.join(EXT, r)), `missing ${r}`);
 
-  const tabs = read(path.join(EXT, 'panel', 'tabs.js'));
+  const tabs = read(path.join(EXT, 'panel', 'agent.js'));
   const cf = /CONTENT_FILES\s*=\s*\[([^\]]*)\]/.exec(tabs);
-  assert.ok(cf, 'CONTENT_FILES not found in panel/tabs.js');
+  assert.ok(cf, 'CONTENT_FILES not found in panel/agent.js');
   const list = [...cf[1].matchAll(/'([^']+)'/g)].map((x) => x[1]);
-  assert.ok(list.length >= 3);
+  assert.ok(list.length >= 4);
+  assert.ok(list.includes('content/media.js'));
   assert.equal(list[0], 'content/core.js', 'core.js must be injected first');
   for (const f of list) assert.ok(fs.existsSync(path.join(EXT, f)), `missing ${f}`);
   const css = /CSS_FILES\s*=\s*\[([^\]]*)\]/.exec(tabs);
@@ -119,7 +120,7 @@ test('every element id the panel code looks up exists in sidepanel.html', () => 
 });
 
 test('panel modules link: every import resolves to a real export', async () => {
-  for (const name of ['dom.js', 'tabs.js', 'page.js']) {
+  for (const name of ['dom.js', 'agent.js', 'media.js', 'request.js', 'tabs.js', 'page.js']) {
     const url = 'file:///' + path.join(EXT, 'panel', name).replace(/\\/g, '/');
     const mod = await import(url);
     assert.ok(Object.keys(mod).length > 0, name);
@@ -237,6 +238,42 @@ test('panel/tabs.js validates agent events and never reads a tab id from the pay
   const s = read(path.join(EXT, 'panel', 'tabs.js'));
   assert.ok(s.includes('isTrustedAgentSender') && s.includes('validateAgentEvent'));
   assert.ok(!/v\.data\.tabId|msg\.tabId|msg\.data\.tabId/.test(s));
+});
+
+// ---------- phase 2: PDF, YouTube, screenshots, cache ----------
+
+test('only the rebuilt canonical YouTube URL is ever sent; no YouTube internal or caption APIs', () => {
+  const media = read(path.join(EXT, 'panel', 'media.js'));
+  const calls = [...media.matchAll(/parts\.fileUri\(([^)]*)\)/g)].map((m) => m[1]);
+  assert.ok(calls.length >= 1);
+  for (const c of calls) assert.ok(/^canonicalVideoUrl\(/.test(c.trim()), `fileUri argument: ${c}`);
+  for (const f of textFiles.filter((x) => x.endsWith('.js'))) {
+    assert.ok(!/timedtext|youtubei|get_video_info|ytInitialPlayerResponse/i.test(read(f)), `${rel(f)} touches a YouTube internal API`);
+  }
+});
+
+test('screenshots: captureVisibleTab is called in one place, as JPEG, and its error becomes capture_denied', () => {
+  const hits = textFiles.filter((f) => /captureVisibleTab/.test(read(f))).map(rel);
+  assert.deepEqual(hits, ['extension/panel/media.js']);
+  const m = read(path.join(EXT, 'panel', 'media.js'));
+  assert.ok(/captureVisibleTab\(windowId, \{ format: 'jpeg', quality: 70 \}\)/.test(m));
+  assert.ok(/capture_denied/.test(m));
+});
+
+test('the explicit cache module sends the key only in a header and never as a URL parameter', () => {
+  const c = read(path.join(EXT, 'lib', 'cachectl.js'));
+  assert.ok(c.includes('headers(apiKey)'));
+  assert.ok(!/[?&]key=/.test(c) && !c.includes('?key='));
+  const r = read(path.join(EXT, 'panel', 'request.js'));
+  assert.ok(!/[?&]key=/.test(r));
+});
+
+test('no unicode glyph icons in the panel UI code (icons are inline SVG)', () => {
+  for (const f of [path.join(EXT, 'sidepanel.html'), ...files.filter((x) => rel(x).startsWith('extension/panel/') && x.endsWith('.js'))]) {
+    const s = read(f);
+    const bad = s.match(/[←-⇿☀-➿⬀-⯿\uD83C-\uD83E][\uDC00-\uDFFF]?/);
+    assert.ok(!bad, `${rel(f)} contains a glyph icon: ${bad && bad[0]}`);
+  }
 });
 
 // ---------- the two findPassage copies stay identical ----------

@@ -26,6 +26,36 @@ function isConnected(node) {
   return false;
 }
 
+// Minimal selector support for the fake DOM: comma lists of compound selectors (tag, #id, .class, [attr], [attr="v"]).
+function matchCompound(n, sel) {
+  const m = /^([a-zA-Z][\w-]*|\*)?((?:[#.][\w-]+|\[[^\]]+\])*)$/.exec(sel.trim());
+  if (!m) throw new Error('fakedom: unsupported selector ' + sel);
+  if (m[1] && m[1] !== '*' && n.tagName !== m[1].toUpperCase()) return false;
+  for (const p of m[2].match(/[#.][\w-]+|\[[^\]]+\]/g) || []) {
+    if (p[0] === '#') { if (n.attrs.id !== p.slice(1)) return false; }
+    else if (p[0] === '.') { if (!String(n.attrs.class || '').split(/\s+/).includes(p.slice(1))) return false; }
+    else {
+      const a = /^\[([\w:-]+)(?:=(?:"([^"]*)"|'([^']*)'|([^\]]*)))?\]$/.exec(p);
+      const v = a[2] ?? a[3] ?? a[4];
+      if (!(a[1] in n.attrs)) return false;
+      if (v !== undefined && String(n.attrs[a[1]]) !== v) return false;
+    }
+  }
+  return true;
+}
+export function qsa(root, selector) {
+  const sels = selector.split(',');
+  const out = [];
+  (function w(n) {
+    for (const c of n.childNodes || []) {
+      if (c.nodeType !== 1) continue;
+      if (sels.some((x) => matchCompound(c, x))) out.push(c);
+      w(c);
+    }
+  })(root);
+  return out;
+}
+
 export function el(tag, attrs = {}, ...kids) {
   const node = {
     nodeType: 1,
@@ -49,6 +79,16 @@ export function el(tag, attrs = {}, ...kids) {
     checkVisibility() { return !attrs.__invisible; },
     getBoundingClientRect() { return attrs.__rect || { left: 0, top: 0, width: 100, height: 20 }; },
     scrollIntoView(o) { this.scrolled.push(o); },
+    querySelectorAll(sel) { return qsa(this, sel); },
+    querySelector(sel) { return qsa(this, sel)[0] || null; },
+    get shadowRoot() {
+      if (!attrs.__shadow) return null;
+      if (!this._shadow) {
+        this._shadow = { nodeType: 11, childNodes: [] };
+        for (const k of attrs.__shadow) { const c = typeof k === 'string' ? t(k) : k; c.parentNode = this._shadow; this._shadow.childNodes.push(c); }
+      }
+      return this._shadow;
+    },
     appendChild(c) { c.parentNode = this; this.childNodes.push(c); return c; },
     remove() {
       if (this.parentNode) this.parentNode.childNodes = this.parentNode.childNodes.filter((c) => c !== this);
@@ -56,6 +96,7 @@ export function el(tag, attrs = {}, ...kids) {
     },
   };
   for (const k of kids) node.appendChild(typeof k === 'string' ? t(k) : k);
+  if (attrs.__props) Object.assign(node, attrs.__props);
   return node;
 }
 
@@ -85,12 +126,13 @@ function containsText(node, set) {
 
 // selection: { startNode, startOffset, endNode, endOffset } (both nodes are text nodes), text: its string form.
 export function makeEnv({
-  body, title = 'Doc title', selection = null, href = 'https://example.com/a', reduced = true,
+  body, head = null, title = 'Doc title', selection = null, innerWidth = 1024, innerHeight = 768, href = 'https://example.com/a', reduced = true,
   highlightApi = true, runtimeId = 'ext-id', hasNavigation = false,
 } = {}) {
   const html = el('html', { lang: 'en' });
   html._isRoot = true;
   html.lang = 'en';
+  if (head) html.appendChild(head);
   html.appendChild(body);
   const sent = [];
   const listeners = {};
@@ -102,13 +144,9 @@ export function makeEnv({
     contentType: 'text/html',
     documentElement: html,
     body,
-    querySelectorAll(sel) { return sel === 'article' ? descendants(body, 'article') : []; },
-    querySelector(sel) {
-      if (sel === 'main') return descendants(body, 'main')[0] || null;
-      if (sel === 'h1') return descendants(body, 'h1')[0] || null;
-      if (sel === 'input[type="password"]') return descendants(body, 'input').find((i) => i.attrs.type === 'password') || null;
-      return null;
-    },
+    querySelectorAll(sel) { return qsa(html, sel); },
+    querySelector(sel) { return qsa(html, sel)[0] || null; },
+    getElementById(id) { return qsa(html, '#' + id)[0] || null; },
     createElement(tag) { return el(tag); },
     createRange() {
       const r = {
@@ -152,7 +190,7 @@ export function makeEnv({
     CSS: highlightApi ? { highlights } : {},
     matchMedia: () => ({ matches: reduced }),
     getComputedStyle: () => ({ display: 'block', visibility: 'visible' }),
-    setTimeout, clearTimeout,
+    setTimeout, clearTimeout, URL, innerWidth, innerHeight,
     addEventListener(type, fn) { (listeners[type] = listeners[type] || []).push(fn); },
     removeEventListener(type, fn) { listeners[type] = (listeners[type] || []).filter((f) => f !== fn); },
     getSelection: () => selObj,
@@ -174,6 +212,7 @@ export function makeEnv({
       return env;
     },
     call(name, args) { return plain(ctx.__PageSum.call(name, args)); },
+    async callAsync(name, args) { return plain(await ctx.__PageSum.call(name, args)); },
     get PS() { return ctx.__PageSum; },
     fire(type, ev) { for (const fn of (listeners[type] || []).slice()) fn(ev); },
   };

@@ -55,7 +55,7 @@ export function stripCitations(raw) {
 // Resolver factories. A resolver maps an id to { text } (truthy) when the id is valid, else null.
 export function chunkResolver(chunks) {
   const byId = new Map();
-  for (const c of chunks || []) byId.set(c.id, c);
+  for (const c of chunks || []) if (!c.pseudo) byId.set(c.id, c);   // "Embedded frame" markers are not citable
   return (id) => {
     const c = byId.get(id);
     return c ? { text: c.text } : null;

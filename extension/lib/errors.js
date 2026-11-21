@@ -51,6 +51,21 @@ export function mapHttpError(status, bodyText) {
   return new GeminiError('http', opts);
 }
 
+const VIDEO_MSG = /video|youtube|file_uri|fileUri|not accessible|private/i;
+
+// A 400 on a request that carries a YouTube fileData part, whose message talks about the video, means the video
+// can't be watched (private, unlisted, age-gated, region-locked). body is the request body object.
+export function mapVideoError(err, body) {
+  if (!err || err.code !== 'bad_request') return err;
+  const turns = body && Array.isArray(body.contents) ? body.contents : [];
+  const hasVideo = turns.some((c) => c && Array.isArray(c.parts) && c.parts.some((p) => {
+    const d = p && (p.fileData || p.file_data);
+    return d && /youtube\.com|youtu\.be/i.test(String(d.fileUri || d.file_uri || ''));
+  }));
+  if (!hasVideo || !VIDEO_MSG.test(String(err.message || ''))) return err;
+  return new GeminiError('video_unavailable', { status: err.status, message: err.message, detail: err.detail });
+}
+
 export function mapFetchError(err) {
   if (err && err.name === 'AbortError') return new GeminiError('aborted');
   return new GeminiError('network', { message: redactKey(err && err.message) });
@@ -106,6 +121,12 @@ export function userMessage(err, { currentModel } = {}) {
       r = { title: 'Response withheld', body: 'Gemini declined because the answer would copy the source too closely. Try a shorter length or ask a narrower question.', actions: ['retry'] }; break;
     case 'empty':
       r = { title: 'Empty response', body: 'Gemini returned no text. Try again.', actions: ['retry'] }; break;
+    case 'too_large':
+      r = { title: 'Too large', body: redactKey(String(err.detail && err.detail.text ? err.detail.text : err.message || 'This file is too large.')).slice(0, 200), actions: [] }; break;
+    case 'capture_denied':
+      r = { title: 'Screenshot not allowed', body: 'Click the PageSum icon on this tab first, then try again.', actions: [] }; break;
+    case 'video_unavailable':
+      r = { title: "Video can't be read", body: "Gemini can only watch public YouTube videos. Open the video's transcript ('…more' > 'Show transcript') and press Retry to use it instead.", actions: ['retry'] }; break;
     case 'no_access':
       r = { title: "Can't read this tab", body: 'Click the PageSum icon while on this tab, or allow access in the panel.', actions: [] }; break;
     case 'aborted':

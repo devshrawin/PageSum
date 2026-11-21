@@ -4,8 +4,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { t, el, makeEnv, plain } from './helpers/fakedom.js';
 
-function run(body, { selection = null, title = 'Doc title', opts = {} } = {}) {
-  const env = makeEnv({ body, title, selection }).load(['core.js', 'extract.js']);
+function run(body, { selection = null, title = 'Doc title', opts = {}, head = null } = {}) {
+  const env = makeEnv({ body, title, selection, head }).load(['core.js', 'extract.js']);
   const r = env.call('extract', { ignoreSelection: false, maxRawChars: 100000, ...opts });
   assert.equal(r.ok, true, JSON.stringify(r));
   return { ...r.data, env };
@@ -235,4 +235,165 @@ test('each extraction replaces the store generation', () => {
   const g1 = env.PS.store.gen;
   env.call('extract', {});
   assert.equal(env.PS.store.gen, g1 + 1);
+});
+
+// ======================= phase 2: structured extraction =======================
+
+const S = { structured: true };
+const tr = (...cells) => el('tr', {}, ...cells);
+const td = (x) => el('td', {}, x);
+const th = (x) => el('th', {}, x);
+const dataTable = (rows, headerCells = ['Name', 'Age']) => el('table', {},
+  el('thead', {}, tr(...headerCells.map(th))),
+  el('tbody', {}, ...rows.map((r) => tr(...r.map(td)))));
+
+test('structured: a data table becomes one markdown chunk with header and separator', () => {
+  const body = el('body', {}, el('p', {}, para(10)), dataTable([['Ann', '31'], ['Bob', '4|2']]));
+  const r = run(body, { opts: S });
+  const tb = r.blocks.filter((b) => b.kind === 'table');
+  assert.equal(tb.length, 1);
+  assert.equal(tb[0].text, '| Name | Age |\n| --- | --- |\n| Ann | 31 |\n| Bob | 4\\|2 |');
+});
+
+test('structured: tables longer than 20 body rows split into chunks of 20 with the header repeated', () => {
+  const rows = Array.from({ length: 45 }, (_, i) => [`n${i}`, `v${i}`]);
+  const r = run(el('body', {}, el('p', {}, para(10)), dataTable(rows)), { opts: S });
+  const tb = r.blocks.filter((b) => b.kind === 'table');
+  assert.equal(tb.length, 3);
+  for (const b of tb) assert.ok(b.text.startsWith('| Name | Age |\n| --- | --- |\n'));
+  assert.deepEqual(tb.map((b) => b.text.split('\n').length - 2), [20, 20, 5]);
+  assert.ok(tb[1].text.includes('| n20 | v20 |'));
+});
+
+test('structured: header from first-row th, else generated Column n; cells are capped and newlines flattened', () => {
+  const noThead = el('table', {}, tr(th('A'), th('B')), tr(td('1'), td('2')));
+  let r = run(el('body', {}, el('p', {}, para(10)), noThead), { opts: S });
+  assert.equal(r.blocks.find((b) => b.kind === 'table').text, '| A | B |\n| --- | --- |\n| 1 | 2 |');
+  const plainTable = el('table', {}, tr(td('x'), td('y')), tr(td('z'), td('w')));
+  r = run(el('body', {}, el('p', {}, para(10)), plainTable), { opts: S });
+  assert.equal(r.blocks.find((b) => b.kind === 'table').text, '| Column 1 | Column 2 |\n| --- | --- |\n| x | y |\n| z | w |');
+  const big = el('table', {}, tr(th('H1'), th('H2')), tr(td('a'.repeat(500)), td('line1\nline2')));
+  r = run(el('body', {}, el('p', {}, para(10)), big), { opts: S });
+  const lines = r.blocks.find((b) => b.kind === 'table').text.split('\n');
+  assert.equal(lines[2], `| ${'a'.repeat(200)} | line1 line2 |`);
+});
+
+test('structured: layout tables (one column, or nested tables) read as paragraphs', () => {
+  const one = el('table', {}, tr(td('Only one column here with some text.')), tr(td('Second row of the same single column.')));
+  let r = run(el('body', {}, el('p', {}, para(10)), one), { opts: S });
+  assert.equal(r.blocks.some((b) => b.kind === 'table'), false);
+  assert.ok(texts(r).includes('Only one column here with some text.'));
+  const nested = el('table', {}, tr(td(el('table', {}, tr(td('inner a'), td('inner b')), tr(td('inner c'), td('inner d')))), td('outer cell text')), tr(td('x'), td('y')));
+  r = run(el('body', {}, el('p', {}, para(10)), nested), { opts: S });
+  // the outer table is layout (paragraphs); the inner 2x2 table is data and becomes its own markdown chunk
+  assert.ok(texts(r).includes('outer cell text'));
+  const tb = r.blocks.filter((b) => b.kind === 'table');
+  assert.equal(tb.length, 1);
+  assert.ok(tb[0].text.includes('inner a'));
+  assert.ok(!tb[0].text.includes('outer cell text'));
+});
+
+test('without structured the v1 row format is kept and no extras are returned', () => {
+  const r = run(el('body', {}, el('p', {}, para(10)), dataTable([['Ann', '31']])));
+  assert.deepEqual(r.blocks.filter((b) => b.kind === 'table').map((b) => b.text), ['Name | Age', 'Ann | 31']);
+  for (const k of ['meta', 'outline', 'links', 'forms']) assert.equal(k in r, false, k);
+});
+
+test('structured: metadata comes from head tags, each capped at 300 chars; canonical must be http(s)', () => {
+  const head = el('head', {},
+    el('meta', { name: 'description', content: 'A ' + 'long '.repeat(100) }),
+    el('meta', { property: 'og:site_name', content: 'Example News' }),
+    el('meta', { name: 'author', content: 'Jane Doe' }),
+    el('meta', { property: 'article:published_time', content: '2026-11-02T10:00:00Z' }),
+    el('meta', { property: 'og:type', content: 'article' }),
+    el('link', { rel: 'canonical', href: '/canonical-path' }));
+  const r = run(el('body', {}, el('p', {}, para(10))), { opts: S, head });
+  assert.equal(r.meta.description.length, 300);
+  assert.equal(r.meta.siteName, 'Example News');
+  assert.equal(r.meta.author, 'Jane Doe');
+  assert.equal(r.meta.published, '2026-11-02T10:00:00Z');
+  assert.equal(r.meta.ogType, 'article');
+  assert.equal(r.meta.canonical, 'https://example.com/canonical-path');
+  const bad = run(el('body', {}, el('p', {}, para(10))), { opts: S, head: el('head', {}, el('link', { rel: 'canonical', href: 'javascript:alert(1)' })) });
+  assert.equal(bad.meta.canonical, '');
+  assert.equal(bad.meta.description, '');
+});
+
+test('structured: outline lists h1-h4 with their local ids (not h5)', () => {
+  const body = el('body', {}, el('h1', {}, 'One'), el('p', {}, para(10)), el('h2', {}, 'Two'), el('h4', {}, 'Four'), el('h5', {}, 'Five'));
+  const r = run(body, { opts: S });
+  assert.deepEqual(r.outline.map((o) => [o.level, o.text]), [[1, 'One'], [2, 'Two'], [4, 'Four']]);
+  for (const o of r.outline) assert.equal(r.blocks.find((b) => b.localId === o.localId).text, o.text);
+});
+
+test('structured: links are http(s) only, resolved, deduplicated and capped at 40; text falls back to aria-label', () => {
+  const a = (href, text, extra = {}) => el('a', { href, ...extra }, text);
+  const links = [
+    a('/pricing', 'Pricing'), a('https://example.com/pricing', 'Pricing again'), a('mailto:x@y.com', 'Mail'),
+    a('javascript:alert(1)', 'JS'), a('https://other.com/x', ''), a('https://icon.com/', '', { 'aria-label': 'Icon link' }),
+    a('#frag', 'Frag'),
+  ];
+  for (let i = 0; i < 60; i++) links.push(a(`https://many.com/${i}`, `Link ${i}`));
+  const r = run(el('body', {}, el('p', {}, para(10)), el('p', {}, ...links)), { opts: S });
+  assert.equal(r.links.length, 40);
+  assert.deepEqual(r.links[0], { text: 'Pricing', href: 'https://example.com/pricing' });
+  assert.equal(r.links.filter((l) => l.href === 'https://example.com/pricing').length, 1);
+  assert.ok(!r.links.some((l) => /^(mailto|javascript):/.test(l.href)));
+  assert.deepEqual(r.links[1], { text: '', href: 'https://other.com/x' });
+  assert.deepEqual(r.links[2], { text: 'Icon link', href: 'https://icon.com/' });
+  assert.equal(r.links[3].href, 'https://example.com/a#frag');
+  assert.equal(run(el('body', {}, el('p', {}, para(10), a('https://x.com/' + 'y'.repeat(300), 'T'.repeat(200)))), { opts: S }).links[0].text.length, 80);
+});
+
+test('structured: form labels with type and required, in labelling order, and never any value', () => {
+  const secret = el('input', { type: 'text', 'aria-label': 'Secret box' });
+  Object.defineProperty(secret, 'value', { get() { throw new Error('the agent must not read values'); } });
+  const body = el('body', {}, el('p', {}, para(10)),
+    el('form', {},
+      el('label', { for: 'em' }, 'Email address'), el('input', { id: 'em', type: 'email', required: '' }),
+      el('label', {}, 'Wrapped label ', el('input', { type: 'text' })),
+      el('input', { type: 'text', placeholder: 'Search the site' }),
+      el('span', { id: 'lb' }, 'Labelled by'), el('input', { type: 'text', 'aria-labelledby': 'lb' }),
+      secret,
+      el('select', { 'aria-label': 'Country' }), el('textarea', { title: 'Comments' }),
+      el('input', { type: 'hidden', name: 'csrf' }), el('input', { type: 'submit' }),
+      el('input', { type: 'text', 'aria-label': 'Invisible', __invisible: true }),
+      el('input', { type: 'password', 'aria-label': 'Password', required: '' })));
+  const r = run(body, { opts: S });
+  assert.deepEqual(r.forms, [
+    { label: 'Email address', type: 'email', required: true },
+    { label: 'Wrapped label', type: 'text', required: false },
+    { label: 'Search the site', type: 'text', required: false },
+    { label: 'Labelled by', type: 'text', required: false },
+    { label: 'Secret box', type: 'text', required: false },
+    { label: 'Country', type: 'select', required: false },
+    { label: 'Comments', type: 'textarea', required: false },
+    { label: 'Password', type: 'password', required: true },
+  ]);
+  assert.equal(r.hasPasswordField, true);
+});
+
+test('structured: an open shadow root is read after the light children; plain extraction ignores it', () => {
+  const host = el('div', { __shadow: [el('p', {}, 'Text inside the shadow root of a web component.')] }, el('p', {}, 'Light child paragraph text.'));
+  const body = el('body', {}, el('p', {}, para(10)), host);
+  const withShadow = run(body, { opts: S });
+  const t2 = texts(withShadow);
+  assert.ok(t2.indexOf('Text inside the shadow root of a web component.') > t2.indexOf('Light child paragraph text.'));
+  const without = run(el('body', {}, el('p', {}, para(10)), el('div', { __shadow: [el('p', {}, 'Hidden in shadow')] }, el('p', {}, 'light'))));
+  assert.ok(!texts(without).some((x) => x.includes('Hidden in shadow')));
+});
+
+test('structured results stay plain data and report the viewport (for the iframe filter)', () => {
+  const r = run(el('body', {}, el('h1', {}, 'T'), el('p', {}, para(10)), dataTable([['a', 'b']])), { opts: S });
+  delete r.env;
+  assert.doesNotThrow(() => structuredClone(plain(r)));
+  assert.deepEqual(plain(r.viewport), { w: 1024, h: 768 });
+});
+
+test('structured selection mode returns no extras', () => {
+  const n = t('This is a user selected paragraph of text, long enough to count.');
+  const body = el('body', {}, el('p', {}, n), el('p', {}, para(20)));
+  const r = run(body, { selection: { startNode: n, startOffset: 0, endNode: n, endOffset: n.nodeValue.length, text: n.nodeValue }, opts: S });
+  assert.equal(r.source, 'selection');
+  for (const k of ['meta', 'outline', 'links', 'forms']) assert.equal(k in r, false, k);
 });

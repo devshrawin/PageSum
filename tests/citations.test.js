@@ -56,6 +56,7 @@ test('resolvers', () => {
   assert.deepEqual(r('c1'), { text: 'alpha' });
   assert.equal(r('c3'), null);
   assert.equal(r('p1'), null);
+  assert.equal(chunkResolver([{ id: 'c1', text: 'Embedded frame: x.com', pseudo: true }])('c1'), null, 'pseudo chunks are not citable');
   const p = pdfResolver(5);
   assert.ok(p('p5'));
   assert.equal(p('p6'), null);

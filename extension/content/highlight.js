@@ -68,6 +68,15 @@
 
   // Exact path: the block's remembered text nodes are all still on the page with the same text.
   function exactRange(blk, text) {
+    if (blk && blk.span && (!text || blk.text === text)) {
+      // Table chunks: the markdown text is not on the page, so mark from the first to the last cell text.
+      var sp = blk.span;
+      if (!sp.first || !sp.last || !sp.first.isConnected || !sp.last.isConnected) return null;
+      var tr = document.createRange();
+      tr.setStart(sp.first, 0);
+      tr.setEnd(sp.last, (sp.last.nodeValue || '').length);
+      return tr;
+    }
     if (!blk || !blk.segments || !blk.segments.length) return null;
     if (text && blk.text !== text) return null; // localId was reused by a newer extraction
     for (var i = 0; i < blk.segments.length; i++) {
@@ -112,6 +121,9 @@
       if (block && hay && hay.charAt(hay.length - 1) !== ' ') hay += ' ';
       var kids = n.childNodes;
       for (var i = 0; i < kids.length; i++) w(kids[i]);
+      if (n.shadowRoot && n.shadowRoot.childNodes) {
+        for (var j = 0; j < n.shadowRoot.childNodes.length; j++) w(n.shadowRoot.childNodes[j]);
+      }
       if (block && hay && hay.charAt(hay.length - 1) !== ' ') hay += ' ';
     })(document.body);
     var m = U.findPassage(hay, text);

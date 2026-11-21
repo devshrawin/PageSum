@@ -3,7 +3,7 @@ import { getSettings } from './lib/storage.js';
 import { redactKey } from './lib/errors.js';
 import { $ } from './panel/dom.js';
 import { app, initTabs, shownState, load } from './panel/tabs.js';
-import { initPage, renderState, setTitle, startSummary, abortUi, updateModelLabel } from './panel/page.js';
+import { initPage, renderState, setTitle, startSummary, startVision, abortUi, updateModelLabel } from './panel/page.js';
 
 function logError(err) {
   console.error(redactKey(String((err && err.message) || err)));
@@ -34,7 +34,7 @@ async function init() {
   });
 
   // Aborting everything when the panel closes needs no code: the panel's JS context ends with it.
-  await initTabs({ render: renderState, setTitle, startSummary, abortUi });
+  await initTabs({ render: renderState, setTitle, startSummary, startVision, abortUi });
 }
 
 init().catch(logError);
