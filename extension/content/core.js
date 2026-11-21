@@ -15,7 +15,8 @@
     gen: 0,
     store: null,                       // { gen, blocks: Map(localId -> { text, kind, segments }) } (extract.js)
     handlers: Object.create(null),     // the command allowlist: only registered names can be called
-    hooks: { hasHighlight: null, clearHighlight: null, onNavigate: null },
+    escapables: [],                    // { active(), clear() }: Esc on the page clears whatever is showing (highlight, guide)
+    navHooks: [],                      // functions called when the page URL changed
     teardownFns: [],
     util: {},
   };
@@ -220,7 +221,7 @@
       var href = String(location.href);
       if (href === lastHref) return;
       lastHref = href;
-      if (PS.hooks.onNavigate) PS.hooks.onNavigate();
+      for (var h = 0; h < PS.navHooks.length; h++) { try { PS.navHooks[h](); } catch (e) { /* ignore */ } }
       PS.emit('navigated', { href: href });
     }, 500);
   }
@@ -228,10 +229,12 @@
   function onKey(e) {
     if (!e || e.key !== 'Escape') return;
     if (!alive()) return;
-    if (PS.hooks.hasHighlight && PS.hooks.hasHighlight()) {
-      if (PS.hooks.clearHighlight) PS.hooks.clearHighlight();
-      PS.emit('escape', {});
+    var any = false;
+    for (var i = 0; i < PS.escapables.length; i++) {
+      var x = PS.escapables[i];
+      if (x.active()) { any = true; x.clear(); }
     }
+    if (any) PS.emit('escape', {});
   }
 
   try {

@@ -2,6 +2,7 @@
 import { createSseParser } from './sse.js';
 import { GeminiError, mapHttpError, mapFetchError, mapFinishReason, mapVideoError } from './errors.js';
 import { filterModelList } from './models.js';
+import { validate } from './jsonschema.js';
 
 export const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 
@@ -144,4 +145,51 @@ export async function listModels({ apiKey, baseUrl = GEMINI_BASE, fetchImpl = fe
   let json = {};
   try { json = JSON.parse(t); } catch { /* ignore */ }
   return filterModelList(json.models);
+}
+
+/* ---------- structured output (spec B10) ---------- */
+
+const jsonStyles = new Map();   // model -> 'responseFormat' | 'legacy', remembered for the session
+
+export function resetJsonStyles() { jsonStyles.clear(); }
+
+function stripFence(text) {
+  const t = String(text).trim();
+  const m = /^```(?:json)?\s*\n?([\s\S]*?)\n?```$/i.exec(t);
+  return m ? m[1].trim() : t;
+}
+
+// Streams a JSON answer, parses it, validates it locally (length limits are stripped server-side) and normalises it.
+// Uses generationConfig.responseFormat; if the server rejects that field by name, retries once with the older
+// responseMimeType + responseJsonSchema pair and remembers the choice for that model.
+// A reply that does not parse or validate throws GeminiError('bad_json', { detail: first three problems }).
+export async function generateJson({
+  apiKey, model, system, contents, schema, normalize, signal, onProgress, baseUrl = GEMINI_BASE, fetchImpl = fetch, ignoreFormats = false,
+}) {
+  const run = (style) => streamGenerate({
+    apiKey, model, signal, baseUrl, fetchImpl,
+    body: buildRequestBody({ system, contents, json: schema, jsonStyle: style }),
+    onText: onProgress ? (t) => onProgress(t.length) : undefined,
+  });
+  let style = jsonStyles.get(model) || 'responseFormat';
+  let r;
+  try {
+    r = await run(style);
+  } catch (err) {
+    if (style === 'responseFormat' && err instanceof GeminiError && err.code === 'bad_request'
+      && /responseFormat|response_format|Unknown name/i.test(String(err.message || ''))) {
+      style = 'legacy';
+      jsonStyles.set(model, style);
+      r = await run(style);
+    } else throw err;
+  }
+  let value;
+  try {
+    value = JSON.parse(stripFence(r.text));
+  } catch {
+    throw new GeminiError('bad_json', { detail: ['The reply was not valid JSON.'] });
+  }
+  const v = validate(schema, value, { formats: !ignoreFormats });
+  if (!v.ok) throw new GeminiError('bad_json', { detail: v.errors.slice(0, 3) });
+  return normalize ? normalize(value) : value;
 }

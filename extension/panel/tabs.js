@@ -11,6 +11,7 @@ import { makeNonce } from '../lib/prompts.js';
 import { redactKey, GeminiError } from '../lib/errors.js';
 import { videoIdFromUrl, canonicalVideoUrl, estimateVideoTokens, LONG_VIDEO_SECONDS } from '../lib/youtube.js';
 import { shouldOfferVision } from '../lib/vision.js';
+import { classifySensitive } from '../lib/sensitive.js';
 import { deleteCache } from '../lib/cachectl.js';
 import { callAgent, ensureAgent, CONTENT_FILES, CSS_FILES } from './agent.js';
 import { loadPdf, PdfAccessError, readVideoInfo, readVisualHints } from './media.js';
@@ -27,7 +28,7 @@ export const app = { settings: null, windowId: null, shownTabId: null };
 export const states = new Map();
 
 let hooks = {
-  render() {}, setTitle() {}, startSummary() {}, startVision() {}, abortUi() {},
+  render() {}, setTitle() {}, startSummary() {}, startVision() {}, abortUi() {}, guideTargetLost() {}, guideContinue() {},
 };
 
 /* ---------- state ---------- */
@@ -65,7 +66,8 @@ export function newState(tabId) {
     media: null,              // PDF bytes / screenshot / transcript kept for follow-ups (never persisted)
     idleLabel: '',            // label of the idle view's button ("Summarise video")
     frames: false,            // the agent is injected into embedded frames too
-    guide: null, tool: null,  // phase 3
+    guide: null, tool: null,  // phase 3: GuideState and the last quick-action result
+    sensitive: null,          // { sensitive, reason } from the privacy guard (spec 12.3)
     notices: [],              // [{ key?, text, action?: { label, run } }]
     pending: null,            // 'empty' view: the extraction to use if the user presses "Try anyway"
     ignoreSelection: false,
@@ -126,12 +128,13 @@ export function enforceStreamLimit(except) {
 
 export function resetState(st) {
   abortStream(st);
+  if (st.tool && st.tool.ctrl) st.tool.ctrl.abort();
   dropCache(st);
   clearTimeout(st.autoTimer);
   Object.assign(st, {
     urlKey: '', page: null, hash: '', stale: false, conv: newConv(), notices: [], pending: null, media: null,
     ignoreSelection: false, autoPending: false, autoVision: false, idleLabel: '', view: 'init', access: 'unknown',
-    restrictedReason: '', guide: null, tool: null,
+    restrictedReason: '', guide: null, tool: null, sensitive: null,
   });
 }
 
@@ -188,8 +191,15 @@ const totalChars = (model) => model.chunks.reduce((n, c) => n + c.text.length, 0
 
 /* ---------- load ---------- */
 
-// Sensitive-page guard (spec 12.3) arrives in phase 3. One place to hook it in.
-function isSensitive() { return { sensitive: false, reason: null }; }
+// Privacy guard (spec 12.3). A host on the user's blocklist is always honoured; the login / banking / health /
+// payment heuristics only apply while sensitiveGuard is on.
+export function sensitiveFor(st, model, settings) {
+  const c = classifySensitive({
+    url: model.url || st.url, title: model.title || st.title, hasPasswordField: !!model.hasPasswordField, blocklist: settings.siteBlocklist,
+  });
+  if (c.reason === 'blocklist') return c;
+  return settings.sensitiveGuard ? c : { sensitive: false, reason: null };
+}
 
 export async function load(tabId, { ignoreSelection, force = false } = {}) {
   const st = ensureState(tabId);
@@ -207,6 +217,7 @@ export async function load(tabId, { ignoreSelection, force = false } = {}) {
   st.autoVision = false;
   st.idleLabel = '';
   st.media = null;
+  st.sensitive = null;
   notify(st);
   try {
     app.settings = await getSettings();
@@ -281,7 +292,15 @@ export async function load(tabId, { ignoreSelection, force = false } = {}) {
     }
     await continueWith(st, got, { force, superseded });
   } finally {
-    if (!superseded()) { st.loading = false; notify(st); armAuto(st); }
+    if (!superseded()) {
+      st.loading = false;
+      if (st.guide && st.guide.needsContinue && st.view !== 'needKey') {
+        st.guide.needsContinue = false;
+        addNotice(st, { key: 'guide-continue', text: 'Page changed.', action: { label: 'Continue guide', run: () => hooks.guideContinue(st) } });
+      }
+      notify(st);
+      armAuto(st);
+    }
   }
 }
 
@@ -370,6 +389,7 @@ export async function continueWith(st, got, { force = false, superseded = () => 
   st.urlKey = normalizeUrlKey(url);
   st.stale = false;
   st.conv = newConv();
+  st.sensitive = sensitiveFor(st, model, settings);
   st.notices = [...(got.extraNotices || [])];
   if (model.source === 'selection') {
     st.notices.push({
@@ -427,7 +447,13 @@ export async function continueWith(st, got, { force = false, superseded = () => 
     st.view = 'idle';
     return;
   }
-  if (settings.autoSummarize && !isSensitive(st).sensitive) {
+  if (st.sensitive.sensitive) {
+    // No automatic request and nothing saved to history. The user can still press the button.
+    st.idleLabel = 'Summarise anyway';
+    st.view = 'idle';
+    return;
+  }
+  if (settings.autoSummarize) {
     st.autoPending = true;     // fires after the tab has stayed shown for AUTO_DELAY_MS (armAuto)
     st.autoVision = autoVision;
     st.view = 'init';
@@ -532,7 +558,11 @@ export async function onNavigated(tabId, href) {
   const key = url ? normalizeUrlKey(url) : '';
   const shown = tabId === app.shownTabId;
   if (st.urlKey && key && key !== st.urlKey) {
-    resetState(st);                       // new page: new conversation, guide cleared
+    // A guide survives a move within the same site ("Page changed. Continue guide"); a different site clears it.
+    const keep = st.guide && sameOrigin(st.url, url) ? st.guide : null;
+    resetState(st);                       // new page: new conversation
+    if (keep) st.guide = { ...keep, needsContinue: true, lost: false };
+    st.url = url;
     if (shown) load(tabId); else notify(st);
     return;
   }
@@ -541,6 +571,10 @@ export async function onNavigated(tabId, href) {
     return;
   }
   if (shown) refresh(st);                 // same URL: content may have changed (hash check)
+}
+
+function sameOrigin(a, b) {
+  try { return new URL(a).origin === new URL(b).origin; } catch { return false; }
 }
 
 /* ---------- init and chrome events ---------- */
@@ -605,7 +639,8 @@ export async function initTabs(h) {
     const st = states.get(sender.tab.id);
     if (!st) return false;
     if (v.event === 'navigated' && sender.frameId === 0) onNavigated(sender.tab.id, v.data.href);
-    // 'escape' needs no action (the agent already cleared its highlight). 'guideTargetLost' is handled in phase 3.
+    if (v.event === 'guideTargetLost' && sender.frameId === 0) hooks.guideTargetLost(st, v.data.elementId);
+    // 'escape' needs no action: the agent already cleared whatever it was showing.
     return false;
   });
 

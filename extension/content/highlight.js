@@ -163,9 +163,8 @@
     return how;
   }
 
-  PS.hooks.hasHighlight = function () { return active; };
-  PS.hooks.clearHighlight = clearHighlight;
-  PS.hooks.onNavigate = clearHighlight;
+  PS.escapables.push({ active: function () { return active; }, clear: clearHighlight });
+  PS.navHooks.push(clearHighlight);
   PS.teardownFns.push(clearHighlight);
 
   PS.register('highlight', function (a) {

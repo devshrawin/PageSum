@@ -4,13 +4,34 @@ import { redactKey } from './lib/errors.js';
 import { $ } from './panel/dom.js';
 import { app, initTabs, shownState, load } from './panel/tabs.js';
 import { initPage, renderState, setTitle, startSummary, startVision, abortUi, updateModelLabel } from './panel/page.js';
+import { initNav, onTabChange, currentTab } from './panel/nav.js';
+import { initTools, renderTools } from './panel/tools.js';
+import { initGuide, renderGuide, onGuideTargetLost, onGuideContinue } from './panel/guide.js';
+import { initCompare, renderCompare } from './panel/compare.js';
+import { initHistory, renderHistory } from './panel/history.js';
 
 function logError(err) {
   console.error(redactKey(String((err && err.message) || err)));
 }
 
+// Draws the Page tab and whichever other tab is showing. Hidden tabs are redrawn when they are opened.
+function renderAll(st) {
+  renderState(st);
+  const tab = currentTab();
+  if (tab === 'tools') renderTools(st);
+  else if (tab === 'guide') renderGuide(st);
+  else if (tab === 'compare') renderCompare();
+  else if (tab === 'history') renderHistory();
+}
+
 async function init() {
+  initNav();
   initPage();
+  initTools();
+  initGuide();
+  initCompare();
+  initHistory();
+  onTabChange(() => renderAll(shownState()));
   try {
     app.settings = await getSettings();
   } catch (err) {
@@ -33,8 +54,11 @@ async function init() {
     } catch (err) { logError(err); }
   });
 
-  // Aborting everything when the panel closes needs no code: the panel's JS context ends with it.
-  await initTabs({ render: renderState, setTitle, startSummary, startVision, abortUi });
+  // Closing the panel aborts everything: the panel's JS context ends with it.
+  await initTabs({
+    render: renderAll, setTitle, startSummary, startVision, abortUi,
+    guideTargetLost: onGuideTargetLost, guideContinue: onGuideContinue,
+  });
 }
 
 init().catch(logError);

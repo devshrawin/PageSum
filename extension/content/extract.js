@@ -403,7 +403,8 @@
       })(document.body);
       return byFor;
     }
-    return function (el) {
+    // opts.noText: never fall back to the element's own text (textarea and password fields can hold what the user typed)
+    return function (el, opts) {
       var t = U.collapse(el.getAttribute('aria-label') || '').trim();
       if (!t) {
         var ids = String(el.getAttribute('aria-labelledby') || '').split(/\s+/).filter(Boolean);
@@ -426,7 +427,7 @@
         for (var i = 0; i < el.childNodes.length; i++) if (el.childNodes[i].tagName === 'IMG') { img = el.childNodes[i]; break; }
         if (img) t = U.collapse(img.getAttribute('alt') || '').trim();
       }
-      if (!t) t = U.collapse(el.textContent || '').trim();
+      if (!t && !(opts && opts.noText)) t = U.collapse(el.textContent || '').trim();
       return t.slice(0, 80);
     };
   };

@@ -20,8 +20,27 @@
 
   <div id="notices" class="notices"></div>
 
+  <nav id="tabbar" class="tabs" role="tablist" aria-label="PageSum sections">
+    <button id="tab-page" type="button" role="tab" class="tab" aria-selected="true" aria-controls="panel-page" aria-label="Page" data-tab="page">
+      <svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 3h7l5 5v13H7zM14 3v5h5"/></svg><span class="tab-label">Page</span>
+    </button>
+    <button id="tab-tools" type="button" role="tab" class="tab" aria-selected="false" tabindex="-1" aria-controls="panel-tools" aria-label="Tools" data-tab="tools">
+      <svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/></svg><span class="tab-label">Tools</span>
+    </button>
+    <button id="tab-guide" type="button" role="tab" class="tab" aria-selected="false" tabindex="-1" aria-controls="panel-guide" aria-label="Guide" data-tab="guide">
+      <svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM15.5 8.5l-2 5-5 2 2-5z"/></svg><span class="tab-label">Guide</span>
+    </button>
+    <button id="tab-compare" type="button" role="tab" class="tab" aria-selected="false" tabindex="-1" aria-controls="panel-compare" aria-label="Compare" data-tab="compare">
+      <svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h7v14H4zM13 5h7v14h-7z"/></svg><span class="tab-label">Compare</span>
+    </button>
+    <button id="tab-history" type="button" role="tab" class="tab" aria-selected="false" tabindex="-1" aria-controls="panel-history" aria-label="History" data-tab="history">
+      <svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 7v5l3 2"/></svg><span class="tab-label">History</span>
+    </button>
+  </nav>
+
+
   <main id="content" class="ps-body">
-    <div id="panel-page" class="panel">
+    <div id="panel-page" class="panel" role="tabpanel" aria-labelledby="tab-page">
       <section id="view-init" class="view" aria-label="Reading page">
         <div class="card">
           <div class="status"><span class="spinner" aria-hidden="true"></span><span>Reading page&hellip;</span></div>
@@ -86,7 +105,9 @@
 
       <section id="view-idle" class="view state" hidden>
         <svg class="i i-20 state-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/><path d="M19 16l.7 1.8L21.5 18.5l-1.8.7L19 21l-.7-1.8-1.8-.7 1.8-.7z"/></svg>
+        <p id="sensitiveText" class="state-text" hidden></p>
         <div class="state-actions"><button id="summariseBtn" type="button" class="btn btn-primary btn-lg primary">Summarise this page</button></div>
+        <button id="neverSiteBtn" type="button" class="link link-muted" hidden>Never on this site</button>
       </section>
 
       <section id="view-summary" class="view" hidden>
@@ -113,6 +134,96 @@
           <div id="summaryError" hidden></div>
         </div>
         <div id="chat" class="chat chat-thread"></div>
+      </section>
+    </div>
+
+    <div id="panel-tools" class="panel" role="tabpanel" aria-labelledby="tab-tools" hidden>
+      <section id="toolsBlocked" class="view state" hidden><p id="toolsBlockedText" class="state-text"></p></section>
+      <section id="toolsMain" class="view">
+        <div id="toolGrid" class="tool-grid" role="group" aria-label="Quick actions"></div>
+        <div id="toolOptions" class="card tool-card" hidden>
+          <h2 id="toolTitle" class="tool-title"></h2>
+          <p id="toolHint" class="hint"></p>
+          <div class="tool-opt" data-for="translate" hidden>
+            <label class="field"><span class="label">Translate into</span>
+              <input id="translateTarget" class="input" type="text" autocomplete="off" placeholder="English"></label>
+          </div>
+          <div class="tool-opt" data-for="reply" hidden>
+            <label class="field"><span class="label">Tone</span>
+              <span class="select-wrap"><select id="replyTone" class="select"><option value="neutral">Neutral</option><option value="friendly">Friendly</option><option value="formal">Formal</option><option value="brief">Brief</option></select></span></label>
+            <label class="field"><span class="label">Your points (optional)</span>
+              <textarea id="replyNotes" class="textarea" rows="3" maxlength="1000" placeholder="What you want to say"></textarea></label>
+          </div>
+          <div class="tool-opt" data-for="table" hidden>
+            <label class="field"><span class="label">What to extract (optional)</span>
+              <input id="tableWhat" class="input" type="text" autocomplete="off" maxlength="300" placeholder="e.g. all products with price"></label>
+          </div>
+          <div class="tool-opt" data-for="form" hidden>
+            <label class="field"><span class="label">Info to use for drafts (optional)</span>
+              <textarea id="formContext" class="textarea" rows="3" maxlength="1000" placeholder="Your own details. Used for this request only, never stored."></textarea></label>
+          </div>
+          <div class="tool-opt" data-for="vision" hidden>
+            <label class="field"><span class="label">Your question</span>
+              <input id="visionQ" class="input" type="text" autocomplete="off" maxlength="500" placeholder="What does the chart show?"></label>
+          </div>
+          <div class="row">
+            <button id="toolRun" type="button" class="btn btn-primary primary">Run</button>
+            <button id="toolStop" type="button" class="btn btn-secondary" hidden>Stop</button>
+          </div>
+        </div>
+        <div id="toolResult" class="tool-result" aria-live="polite"></div>
+      </section>
+    </div>
+
+    <div id="panel-guide" class="panel" role="tabpanel" aria-labelledby="tab-guide" hidden>
+      <section id="guideBlocked" class="view state" hidden><p id="guideBlockedText" class="state-text"></p></section>
+      <section id="guideMain" class="view">
+        <div id="guideStartBox" class="card guide-card">
+          <label class="field"><span class="label">What do you want to do on this page?</span>
+            <textarea id="guideGoal" class="textarea" rows="3" maxlength="500" placeholder="For example: change the default branch"></textarea></label>
+          <p class="hint">PageSum shows you where to look. It never clicks or types for you.</p>
+          <div class="row"><button id="guideStart" type="button" class="btn btn-primary primary">Show me how</button></div>
+        </div>
+        <div id="guideError" hidden></div>
+        <div id="guidePlan" class="guide-plan" hidden>
+          <p id="guideSummary" class="guide-summary"></p>
+          <p id="guideDropped" class="hint" hidden></p>
+          <ol id="guideSteps" class="guide-steps"></ol>
+          <p id="guideLost" class="guide-lost" role="status" hidden>Can't find this on the page now.</p>
+          <div class="guide-toolbar">
+            <button id="guideBack" type="button" class="btn btn-secondary btn-sm">Back</button>
+            <button id="guideNext" type="button" class="btn btn-primary btn-sm primary">Next</button>
+            <button id="guideShowBtn" type="button" class="btn btn-secondary btn-sm">Show on page</button>
+            <button id="guideReplan" type="button" class="btn btn-secondary btn-sm">Re-plan</button>
+            <button id="guideDone" type="button" class="btn btn-ghost btn-sm">Done</button>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <div id="panel-compare" class="panel" role="tabpanel" aria-labelledby="tab-compare" hidden>
+      <section class="view">
+        <div id="compareIntro" class="card compare-card">
+          <p class="hint">Compare up to 4 open tabs side by side. PageSum asks for permission to see the tab list, then for the sites you pick.</p>
+          <div class="row"><button id="compareChoose" type="button" class="btn btn-secondary">Choose tabs</button></div>
+          <div id="compareTabs" class="compare-tabs" hidden></div>
+          <label class="field" id="compareFocusBox" hidden><span class="label">Focus (optional)</span>
+            <input id="compareFocus" class="input" type="text" autocomplete="off" maxlength="300" placeholder="e.g. battery life and price"></label>
+          <div class="row"><button id="compareRun" type="button" class="btn btn-primary primary" hidden>Compare</button><button id="compareStop" type="button" class="btn btn-secondary" hidden>Stop</button></div>
+        </div>
+        <div id="compareResult" class="tool-result" aria-live="polite"></div>
+      </section>
+    </div>
+
+    <div id="panel-history" class="panel" role="tabpanel" aria-labelledby="tab-history" hidden>
+      <section class="view">
+        <div class="history-bar">
+          <input id="historySearch" class="input" type="search" autocomplete="off" aria-label="Search history" placeholder="Search saved summaries">
+          <button id="historyExport" type="button" class="btn btn-secondary btn-sm">Export Markdown</button>
+          <button id="historyClear" type="button" class="btn btn-danger btn-sm">Clear all</button>
+        </div>
+        <p id="historyEmpty" class="state-text" hidden></p>
+        <div id="historyList" class="history-list"></div>
       </section>
     </div>
   </main>

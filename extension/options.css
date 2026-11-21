@@ -34,3 +34,9 @@ fieldset.field legend { padding: 0; margin-bottom: 6px; }
 .btn.danger, .btn-danger { color: var(--ps-danger); }
 
 .opt-toast { z-index: 10; left: 0; right: 0; bottom: 24px; margin: 0 auto; width: max-content; transform: none; }
+
+/* Site access list (phase 3) */
+.list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.site-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 12px; border: 1px solid var(--ps-border); border-radius: 10px; background: var(--ps-surface); }
+.site-name { overflow-wrap: anywhere; font-family: var(--ps-font-mono); font-size: var(--ps-text-sm); }
+textarea.textarea { font-family: var(--ps-font-mono); font-size: var(--ps-text-sm); }

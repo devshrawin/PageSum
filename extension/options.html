@@ -77,11 +77,88 @@
       </div>
     </section>
 
+    <section class="opt-section" aria-labelledby="h-features">
+      <div class="opt-section-head"><h2 id="h-features">Features</h2><p>What PageSum reads and how.</p></div>
+      <div class="opt-section-body">
+        <label class="switch">
+          <span class="switch-text"><span class="label">Clickable sources</span><span class="hint">Numbered markers after claims that jump to the passage on the page.</span></span>
+          <input id="citations" type="checkbox" role="switch">
+        </label>
+        <label class="switch">
+          <span class="switch-text"><span class="label">Structured extraction</span><span class="hint">Read tables, the outline, links and form labels, not just text.</span></span>
+          <input id="structuredExtraction" type="checkbox" role="switch">
+        </label>
+        <label class="switch">
+          <span class="switch-text"><span class="label">Read embedded frames</span><span class="hint">Include text from iframes on the page when Chrome allows it.</span></span>
+          <input id="readFrames" type="checkbox" role="switch">
+        </label>
+        <fieldset class="field">
+          <legend class="label">Screenshots when a page has little text</legend>
+          <div class="seg">
+            <label class="seg-opt"><input type="radio" name="vision" value="ask"><span>Ask first</span></label>
+            <label class="seg-opt"><input type="radio" name="vision" value="auto"><span>Automatic</span></label>
+            <label class="seg-opt"><input type="radio" name="vision" value="off"><span>Off</span></label>
+          </div>
+          <p class="hint">A screenshot of the visible area is sent to Google. Automatic follows the same one-second rule as summaries.</p>
+        </fieldset>
+        <fieldset class="field">
+          <legend class="label">YouTube</legend>
+          <div class="seg">
+            <label class="seg-opt"><input type="radio" name="ytmode" value="video"><span>Watch the video</span></label>
+            <label class="seg-opt"><input type="radio" name="ytmode" value="transcript"><span>Use the transcript</span></label>
+          </div>
+          <p class="hint">Watching sends the video's public address to Gemini. The transcript option reads the transcript panel you open.</p>
+        </fieldset>
+        <label class="switch">
+          <span class="switch-text"><span class="label">Explicit context cache</span><span class="hint">Paid tier only. Not available for Flash-Lite on the free tier. Stores a long page at Google for 15 minutes so follow-up questions send less.</span></span>
+          <input id="explicitCache" type="checkbox" role="switch">
+        </label>
+        <label class="field"><span class="label">Default translation language</span>
+          <input id="translateTarget" class="input" type="text" autocomplete="off" placeholder="English">
+        </label>
+      </div>
+    </section>
+
+    <section class="opt-section" aria-labelledby="h-privacy">
+      <div class="opt-section-head"><h2 id="h-privacy">Privacy</h2><p>What PageSum does not send or keep.</p></div>
+      <div class="opt-section-body">
+        <label class="switch">
+          <span class="switch-text"><span class="label">Sensitive-page guard</span><span class="hint">Don't summarise or save login, banking, health and payment pages unless you press the button.</span></span>
+          <input id="sensitiveGuard" type="checkbox" role="switch">
+        </label>
+        <label class="switch">
+          <span class="switch-text"><span class="label">Save summaries to history</span><span class="hint">Kept in this browser only. Sensitive pages are never saved.</span></span>
+          <input id="historyEnabled" type="checkbox" role="switch">
+        </label>
+        <label class="switch">
+          <span class="switch-text"><span class="label">Also save my questions and answers</span><span class="hint">The last 20 messages of a chat.</span></span>
+          <input id="historySaveChat" type="checkbox" role="switch">
+        </label>
+        <label class="field"><span class="label">Never summarise or save these sites</span>
+          <textarea id="siteBlocklist" class="textarea" rows="4" spellcheck="false" placeholder="One host per line, for example&#10;mybank.com&#10;*.hospital.org"></textarea>
+        </label>
+        <p id="blocklistMsg" class="msg" role="status" aria-live="polite"></p>
+      </div>
+    </section>
+
+    <section class="opt-section" aria-labelledby="h-sites">
+      <div class="opt-section-head"><h2 id="h-sites">Site access</h2><p>Sites you allowed PageSum to read. Revoke any time.</p></div>
+      <div class="opt-section-body">
+        <ul id="siteList" class="list"></ul>
+        <p id="siteEmpty" class="hint" hidden>No sites have been allowed. PageSum reads a tab only after you click its icon or allow the site.</p>
+        <div class="row">
+          <button id="revokeAll" type="button" class="btn btn-danger danger">Revoke all sites</button>
+          <span id="siteMsg" class="msg" role="status" aria-live="polite"></span>
+        </div>
+      </div>
+    </section>
+
     <section class="opt-section" aria-labelledby="h-data">
-      <div class="opt-section-head"><h2 id="h-data">Data</h2><p>Cached summaries live in this browser only.</p></div>
+      <div class="opt-section-head"><h2 id="h-data">Data</h2><p>Cached summaries and history live in this browser only.</p></div>
       <div class="opt-section-body">
         <div class="row">
           <button id="clearCache" type="button" class="btn btn-secondary">Clear cached summaries</button>
+          <button id="clearHistory" type="button" class="btn btn-secondary">Clear history</button>
           <span id="dataMsg" class="msg" role="status" aria-live="polite"></span>
         </div>
       </div>

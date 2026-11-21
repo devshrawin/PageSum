@@ -137,6 +137,14 @@ test('switchModel hidden when current model is the default', () => {
   assert.deepEqual(userMessage(q, { currentModel: 'gemini-3.5-flash-lite' }).actions, ['retry']);
 });
 
+test('bad_json (phase 3) row: retry and switch model', () => {
+  const m = userMessage(new GeminiError('bad_json', { detail: ['x'] }), { currentModel: 'gemini-3.8-flash' });
+  assert.equal(m.title, 'Unexpected answer format');
+  assert.match(m.body, /didn't match the expected structure/);
+  assert.deepEqual(m.actions, ['retry', 'switchModel']);
+  assert.deepEqual(userMessage(new GeminiError('bad_json'), { currentModel: 'gemini-3.5-flash-lite' }).actions, ['retry']);
+});
+
 test('too_large, capture_denied and video_unavailable (phase 2) rows', () => {
   const big = userMessage(new GeminiError('too_large', { message: 'This PDF is 34 MB; the limit is 20 MB.' }), {});
   assert.deepEqual([big.title, big.body, big.actions], ['Too large', 'This PDF is 34 MB; the limit is 20 MB.', []]);

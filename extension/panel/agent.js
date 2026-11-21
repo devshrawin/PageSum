@@ -1,8 +1,8 @@
 // Panel -> page agent channel (spec 6.1) and injection. No DOM, no panel state.
 // The agent has no inbound listener: every command is a chrome.scripting.executeScript call.
 
-// Injected together, in this order, as classic scripts. Phase 3 appends 'content/guide.js'.
-export const CONTENT_FILES = ['content/core.js', 'content/extract.js', 'content/highlight.js', 'content/media.js'];
+// Injected together, in this order, as classic scripts. guide.js (phase 3) is last.
+export const CONTENT_FILES = ['content/core.js', 'content/extract.js', 'content/highlight.js', 'content/media.js', 'content/guide.js'];
 export const CSS_FILES = ['content/agent.css'];
 
 // Returns one entry per frame that answered: { frameId, ok, data?, error? }.

@@ -697,3 +697,89 @@ test('structured extraction can be switched off in settings', async () => {
   assert.equal(st.page.meta, undefined);
   assert.equal(st.page.outline, undefined);
 });
+
+// ======================= phase 3: privacy guard, guide across navigation =======================
+
+test('sensitive page (password field): idle view with "Summarise anyway", no automatic summary', async () => {
+  const body = el('body', {}, el('p', {}, PARA.repeat(12)), el('input', { type: 'password' }));
+  const h = harness({ tabs: { 1: tabOf(1, 'https://example.com/account') }, active: 1, bodies: { 1: body } });
+  await initTabs(h.hooks);
+  await sleep(AUTO_DELAY_MS + 150);
+  const st = states.get(1);
+  assert.deepEqual(st.sensitive, { sensitive: true, reason: 'login' });
+  assert.equal(st.view, 'idle');
+  assert.equal(st.idleLabel, 'Summarise anyway');
+  assert.equal(st.autoPending, false);
+  assert.deepEqual(h.calls.startSummary, []);
+});
+
+test('sensitive by path, and the guard can be switched off (a blocklisted host is still honoured)', async () => {
+  const paths = harness({ tabs: { 1: tabOf(1, 'https://shop.example.com/checkout/step2') }, active: 1, bodies: { 1: articleBody() } });
+  await initTabs(paths.hooks);
+  await sleep(80);
+  assert.equal(states.get(1).sensitive.reason, 'payment');
+  assert.equal(states.get(1).view, 'idle');
+  for (const x of states.values()) resetState(x); states.clear();
+  const off = harness({ tabs: { 1: tabOf(1, 'https://shop.example.com/checkout') }, active: 1, settings: { sensitiveGuard: false }, bodies: { 1: articleBody() } });
+  await initTabs(off.hooks);
+  await sleep(80);
+  assert.equal(states.get(1).sensitive.sensitive, false);
+  assert.equal(states.get(1).autoPending, true);
+  for (const x of states.values()) resetState(x); states.clear();
+  const listed = harness({ tabs: { 1: tabOf(1, 'https://news.example.com/a') }, active: 1, settings: { sensitiveGuard: false, siteBlocklist: ['*.example.com'] }, bodies: { 1: articleBody() } });
+  await initTabs(listed.hooks);
+  await sleep(80);
+  assert.deepEqual(states.get(1).sensitive, { sensitive: true, reason: 'blocklist' });
+  assert.equal(states.get(1).view, 'idle');
+});
+
+test('an ordinary page is not flagged', async () => {
+  const h = harness({ tabs: { 1: tabOf(1, 'https://blog.example.com/post') }, active: 1, bodies: { 1: articleBody() } });
+  await initTabs(h.hooks);
+  await sleep(80);
+  assert.deepEqual(states.get(1).sensitive, { sensitive: false, reason: null });
+});
+
+test('a guide survives navigation within the same site with a "Continue guide" notice, and is dropped for another site', async () => {
+  const h = harness({ tabs: { 1: tabOf(1, 'https://github.com/a/b') }, active: 1, bodies: { 1: articleBody() } });
+  const continued = [];
+  h.hooks.guideContinue = (st) => continued.push(st.tabId);
+  await initTabs(h.hooks);
+  await sleep(80);
+  const st = states.get(1);
+  st.autoPending = false;
+  st.guide = { goal: 'change the default branch', plan: { feasible: true, summary: 's', steps: [{ instruction: 'a' }, { instruction: 'b' }] }, index: 1, doneSteps: ['a'] };
+  h.tabs[1].url = 'https://github.com/a/b/settings';
+  h.envs[1].sandbox.location.href = 'https://github.com/a/b/settings';
+  await onNavigated(1, 'https://github.com/a/b/settings');
+  await sleep(120);
+  assert.equal(st.guide.goal, 'change the default branch');
+  assert.equal(st.guide.index, 1);
+  assert.equal(st.guide.needsContinue, false, 'consumed by the notice');
+  const n = st.notices.find((x) => x.key === 'guide-continue');
+  assert.equal(n.text, 'Page changed.');
+  assert.equal(n.action.label, 'Continue guide');
+  n.action.run();
+  assert.deepEqual(continued, [1], 'the API is only called when the user presses it');
+
+  h.tabs[1].url = 'https://elsewhere.example.org/x';
+  h.envs[1].sandbox.location.href = 'https://elsewhere.example.org/x';
+  await onNavigated(1, 'https://elsewhere.example.org/x');
+  await sleep(120);
+  assert.equal(st.guide, null);
+});
+
+test('guideTargetLost from the main frame of a tracked tab reaches the guide hook; other frames and untrusted senders do not', async () => {
+  const h = harness({ tabs: { 1: tabOf(1, 'https://a.com/') }, active: 1, bodies: { 1: articleBody() } });
+  const lost = [];
+  h.hooks.guideTargetLost = (st, id) => lost.push([st.tabId, id]);
+  await initTabs(h.hooks);
+  await sleep(60);
+  const msg = (id) => ({ v: 2, src: 'pagesum-agent', type: 'agent/event', event: 'guideTargetLost', data: { elementId: id } });
+  const send = (m, sender) => h.listeners.message.forEach((f) => f(m, sender));
+  send(msg('e3'), { id: 'ext-id', tab: { id: 1, windowId: 1 }, frameId: 0 });
+  send(msg('e4'), { id: 'ext-id', tab: { id: 1, windowId: 1 }, frameId: 2 });
+  send(msg('e5'), { id: 'intruder', tab: { id: 1, windowId: 1 }, frameId: 0 });
+  send(msg('bogus'), { id: 'ext-id', tab: { id: 1, windowId: 1 }, frameId: 0 });
+  assert.deepEqual(lost, [[1, 'e3']]);
+});

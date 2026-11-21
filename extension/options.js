@@ -1,4 +1,5 @@
 import { getSettings, saveSettings, clearCache } from './lib/storage.js';
+import { clearHistory } from './lib/history.js';
 import { MODEL_PRESETS } from './lib/models.js';
 import { listModels } from './lib/gemini.js';
 import { userMessage, redactKey, GeminiError } from './lib/errors.js';
@@ -69,6 +70,83 @@ function fillForm() {
   $('maxChars').value = String(settings.maxChars);
   $('autoSummarize').checked = settings.autoSummarize;
   buildModelSelect();
+}
+
+
+/* ---------- v2 settings: features, privacy, site access ---------- */
+
+const SWITCHES = ['citations', 'structuredExtraction', 'readFrames', 'explicitCache', 'sensitiveGuard', 'historyEnabled', 'historySaveChat'];
+
+function fillV2() {
+  for (const id of SWITCHES) $(id).checked = !!settings[id];
+  for (const r of document.querySelectorAll('input[name="vision"]')) r.checked = r.value === settings.vision;
+  for (const r of document.querySelectorAll('input[name="ytmode"]')) r.checked = r.value === settings.youtubeMode;
+  $('translateTarget').value = settings.translateTarget;
+  $('siteBlocklist').value = settings.siteBlocklist.join('\n');
+}
+
+// Origins the user granted: everything optional, so not the Gemini host the manifest asks for at install.
+async function grantedOrigins() {
+  const all = await chrome.permissions.getAll();
+  const required = new Set((chrome.runtime.getManifest().host_permissions) || []);
+  return (all.origins || []).filter((o) => !required.has(o));
+}
+
+async function renderSites() {
+  const list = $('siteList');
+  list.replaceChildren();
+  let origins = [];
+  try { origins = await grantedOrigins(); } catch { origins = []; }
+  $('siteEmpty').hidden = origins.length > 0;
+  $('revokeAll').disabled = origins.length === 0;
+  for (const o of origins) {
+    const li = document.createElement('li');
+    li.className = 'site-row';
+    const name = document.createElement('span');
+    name.className = 'site-name';
+    name.textContent = o === '<all_urls>' || o === '*://*/*' ? 'All sites' : o.replace(/\/\*$/, '');
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'btn btn-secondary btn-sm';
+    b.textContent = 'Revoke';
+    b.setAttribute('aria-label', `Revoke access to ${name.textContent}`);
+    b.addEventListener('click', async () => {
+      try { await chrome.permissions.remove({ origins: [o] }); say('siteMsg', 'Revoked', 'ok'); } catch { say('siteMsg', 'Could not revoke that site.', 'err'); }
+      renderSites();
+    });
+    li.append(name, b);
+    list.appendChild(li);
+  }
+}
+
+function initV2() {
+  fillV2();
+  for (const id of SWITCHES) $(id).addEventListener('change', () => save({ [id]: $(id).checked }));
+  for (const r of document.querySelectorAll('input[name="vision"]')) r.addEventListener('change', () => { if (r.checked) save({ vision: r.value }); });
+  for (const r of document.querySelectorAll('input[name="ytmode"]')) r.addEventListener('change', () => { if (r.checked) save({ youtubeMode: r.value }); });
+  $('translateTarget').addEventListener('change', () => save({ translateTarget: $('translateTarget').value.trim() }));
+  $('siteBlocklist').addEventListener('change', async () => {
+    const lines = $('siteBlocklist').value.split(/\r?\n/).map((x) => x.trim()).filter(Boolean);
+    await save({ siteBlocklist: lines });
+    const kept = settings.siteBlocklist.length;
+    $('siteBlocklist').value = settings.siteBlocklist.join('\n');
+    say('blocklistMsg', kept === lines.length ? '' : `${lines.length - kept} entries were not valid hosts and were removed.`, kept === lines.length ? '' : 'warn');
+  });
+  $('revokeAll').addEventListener('click', async () => {
+    try {
+      const origins = await grantedOrigins();
+      if (origins.length) await chrome.permissions.remove({ origins });
+      say('siteMsg', 'Revoked', 'ok');
+    } catch { say('siteMsg', 'Could not revoke all sites.', 'err'); }
+    renderSites();
+  });
+  $('clearHistory').addEventListener('click', async () => {
+    try { await clearHistory(); say('dataMsg', 'History cleared', 'ok'); } catch { say('dataMsg', 'Could not clear history.', 'err'); }
+  });
+  renderSites();
+  // Grants can also change from the panel while this page is open.
+  if (chrome.permissions.onAdded) chrome.permissions.onAdded.addListener(renderSites);
+  if (chrome.permissions.onRemoved) chrome.permissions.onRemoved.addListener(renderSites);
 }
 
 function currentKey() { return $('apiKey').value.trim(); }
@@ -148,6 +226,8 @@ async function init() {
     $('maxChars').value = String(settings.maxChars);
   });
   $('autoSummarize').addEventListener('change', () => save({ autoSummarize: $('autoSummarize').checked }));
+
+  initV2();
 
   $('clearCache').addEventListener('click', async () => {
     try { await clearCache(); say('dataMsg', 'Cleared', 'ok'); } catch { say('dataMsg', 'Could not clear cache.', 'err'); }

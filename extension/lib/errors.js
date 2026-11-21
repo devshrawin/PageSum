@@ -121,6 +121,8 @@ export function userMessage(err, { currentModel } = {}) {
       r = { title: 'Response withheld', body: 'Gemini declined because the answer would copy the source too closely. Try a shorter length or ask a narrower question.', actions: ['retry'] }; break;
     case 'empty':
       r = { title: 'Empty response', body: 'Gemini returned no text. Try again.', actions: ['retry'] }; break;
+    case 'bad_json':
+      r = { title: 'Unexpected answer format', body: "Gemini's reply didn't match the expected structure. Try again, or pick a larger model.", actions: ['retry', 'switchModel'] }; break;
     case 'too_large':
       r = { title: 'Too large', body: redactKey(String(err.detail && err.detail.text ? err.detail.text : err.message || 'This file is too large.')).slice(0, 200), actions: [] }; break;
     case 'capture_denied':

@@ -1,7 +1,8 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { startMock } from './mock-gemini.js';
-import { streamGenerate, listModels, buildRequestBody, extractChunk, parts } from '../extension/lib/gemini.js';
+import { streamGenerate, listModels, buildRequestBody, extractChunk, parts, generateJson, resetJsonStyles } from '../extension/lib/gemini.js';
+import { GUIDE_SCHEMA, normalizeGuide } from '../extension/lib/schemas.js';
 import { GeminiError } from '../extension/lib/errors.js';
 import { createCache, deleteCache } from '../extension/lib/cachectl.js';
 import { bytesToBase64 } from '../extension/lib/pdf.js';
@@ -174,6 +175,63 @@ test('explicit cache: an unsupported model refuses creation; the caller can carr
   assert.equal(e.code, 'bad_request');
   const r = await streamGenerate({ apiKey: 'cache-unsupported', model, baseUrl: mock.url, body });
   assert.ok(r.text);
+});
+
+// ======================= phase 3: structured output =======================
+
+const gj = (apiKey, extra = {}) => generateJson({
+  apiKey, model: 'gemini-3.5-flash-lite', system: 'SYS', contents: [{ role: 'user', parts: [{ text: 'plan' }] }],
+  schema: GUIDE_SCHEMA, baseUrl: mock.url, ...extra,
+});
+
+test('json-ok: sends responseFormat.text.schema, reassembles the streamed JSON and normalises it', async () => {
+  resetJsonStyles();
+  mock.reset();
+  const progress = [];
+  const plan = await gj('json-ok', { normalize: normalizeGuide, onProgress: (n) => progress.push(n) });
+  assert.equal(plan.feasible, true);
+  assert.equal(plan.steps[0].elementId, 'e1');
+  assert.equal(plan.steps[0].valueHint, null);
+  assert.ok(progress.length >= 3 && progress[0] < progress[progress.length - 1], 'progress grows over the three events');
+  const gc = mock.lastRequest.body.generationConfig;
+  assert.equal(gc.responseFormat.text.mimeType, 'APPLICATION_JSON');
+  assert.deepEqual(gc.responseFormat.text.schema, GUIDE_SCHEMA);
+  assert.equal(gc.responseMimeType, undefined);
+  assert.equal(mock.requests.length, 1);
+});
+
+test('json-bad: a truncated reply is bad_json with a detail, never a crash', async () => {
+  resetJsonStyles();
+  const e = await gj('json-bad').catch((x) => x);
+  assert.ok(e instanceof GeminiError);
+  assert.equal(e.code, 'bad_json');
+  assert.ok(Array.isArray(e.detail) && e.detail.length >= 1);
+});
+
+test('schema-legacy: responseFormat is refused by name, so it retries once with the legacy pair and remembers it', async () => {
+  resetJsonStyles();
+  mock.reset();
+  const plan = await gj('schema-legacy');
+  assert.equal(plan.steps.length, 1);
+  assert.equal(mock.requests.length, 2, 'one refused request, one retry');
+  assert.ok(mock.requests[0].body.generationConfig.responseFormat);
+  assert.equal(mock.requests[1].body.generationConfig.responseMimeType, 'application/json');
+  assert.deepEqual(mock.requests[1].body.generationConfig.responseJsonSchema, GUIDE_SCHEMA);
+  mock.reset();
+  await gj('schema-legacy');
+  assert.equal(mock.requests.length, 1, 'the style is remembered for the model');
+  assert.ok(mock.requests[0].body.generationConfig.responseJsonSchema);
+  resetJsonStyles();
+});
+
+test('generateJson: a valid-JSON reply that breaks the schema is bad_json; other errors pass through', async () => {
+  resetJsonStyles();
+  const strict = { ...GUIDE_SCHEMA, required: [...GUIDE_SCHEMA.required, 'extra'] };
+  const e = await gj('json-ok', { schema: strict }).catch((x) => x);
+  assert.equal(e.code, 'bad_json');
+  assert.match(e.detail[0], /extra: missing/);
+  assert.equal(await code(gj('badkey')), 'bad_key');
+  assert.equal(await code(gj('quota-min')), 'quota');
 });
 
 test('the mock records every request in order', async () => {

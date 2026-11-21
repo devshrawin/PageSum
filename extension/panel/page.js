@@ -15,6 +15,8 @@ import {
   callAgent, ensureAgent,
 } from './tabs.js';
 import { runRequest } from './request.js';
+import { currentTab } from './nav.js';
+import { recordHistory } from './history.js';
 import { captureScreenshot } from './media.js';
 
 const VIEWS = ['init', 'needKey', 'restricted', 'needAccess', 'empty', 'idle', 'summary'];
@@ -91,7 +93,7 @@ export function setTitle(st) {
 
 function setView(name) {
   for (const v of VIEWS) $('view-' + v).hidden = v !== name;
-  $('footer').hidden = name !== 'summary';
+  $('footer').hidden = name !== 'summary' || currentTab() !== 'page';
 }
 
 function renderNotices(st) {
@@ -130,11 +132,31 @@ export function renderState(st) {
   setView(st.view);
   if (st.view === 'restricted') $('restrictedText').textContent = st.restrictedReason;
   else if (st.view === 'needAccess') renderNeedAccess(st);
-  else if (st.view === 'idle') $('summariseBtn').textContent = st.idleLabel || 'Summarise this page';
+  else if (st.view === 'idle') renderIdle(st);
   else if (st.view === 'needKey') { $('keyMsg').textContent = ''; $('keyInput').focus(); }
   else if (st.view === 'summary') renderSummaryView(st);
   updateModelLabel();
 }
+
+// Idle view: the "Summarise" button, or the privacy variant for a page that looks sensitive.
+function renderIdle(st) {
+  $('summariseBtn').textContent = st.idleLabel || 'Summarise this page';
+  const s = st.sensitive;
+  const text = $('sensitiveText');
+  const never = $('neverSiteBtn');
+  if (s && s.sensitive) {
+    text.textContent = s.reason === 'blocklist'
+      ? 'This site is on your blocklist. Its text would be sent to Google.'
+      : `This page looks like a ${SENSITIVE_WORDS[s.reason] || 'sensitive'} page. Its text would be sent to Google.`;
+    text.hidden = false;
+    never.hidden = s.reason === 'blocklist';
+  } else {
+    text.hidden = true;
+    never.hidden = true;
+  }
+}
+
+const SENSITIVE_WORDS = { login: 'login', banking: 'banking', health: 'health', payment: 'payment' };
 
 function renderNeedAccess(st) {
   $('needAccessTitle').textContent = "PageSum can't read this tab yet.";
@@ -267,6 +289,26 @@ async function saveEntry(st) {
   } catch (err) { logError(err); }
 }
 
+/* ---------- history ---------- */
+
+const LENGTH_LABEL = { short: 'Short', medium: 'Medium', detailed: 'Detailed' };
+
+// Saves the current summary (and, if the setting is on, the chat) to the history library.
+async function saveToHistory(st) {
+  const conv = st.conv;
+  const length = conv.chatLength || conv.length;
+  const markdown = conv.summaries[length];
+  if (!markdown || !st.page) return;
+  const kindWord = st.page.kind === 'pdf' ? 'PDF summary' : st.page.kind === 'video' ? 'Video summary' : `${LENGTH_LABEL[length] || 'Medium'} summary`;
+  try {
+    const r = await recordHistory(st, { label: kindWord, markdown, chat: conv.messages });
+    if (r.skipped) {
+      addNotice(st, { key: 'history-skip', text: r.skipped });
+      if (isShown(st)) renderNotices(st);
+    }
+  } catch (err) { logError(err); }
+}
+
 /* ---------- streaming ---------- */
 
 // Called by tabs.js when it aborts a background stream to stay within the concurrency limit.
@@ -312,6 +354,7 @@ export async function startSummary(st, length) {
     st.ctrl = null;
     if (isShown(st)) { drawSummary(st); updateControls(st); announce('Summary ready'); }
     await saveEntry(st);
+    await saveToHistory(st);
   } catch (err) {
     if (st.ctrl !== ctrl) return;
     if (isShown(st)) cancelRender();
@@ -426,6 +469,7 @@ async function runAnswer(st, q) {
     st.ctrl = null;
     if (isShown(st)) { renderChat(st); updateControls(st); announce('Answer ready'); }
     await saveEntry(st);
+    if (settings.historySaveChat) await saveToHistory(st);
   } catch (err) {
     if (st.ctrl !== ctrl) return;
     if (isShown(st)) cancelRender();
@@ -564,6 +608,18 @@ export function initPage() {
 
   $('tryAnyway').addEventListener('click', () => { const st = shownState(); if (st) tryAnyway(st); });
   $('summariseBtn').addEventListener('click', () => { const st = shownState(); if (st && st.page) startSummary(st, app.settings.defaultLength); });
+  // "Never on this site": add the host to the blocklist (the setting is stored normalised, one host per entry).
+  $('neverSiteBtn').addEventListener('click', async () => {
+    const st = shownState();
+    if (!st || !st.page) return;
+    let host = '';
+    try { host = new URL(st.page.url || st.url).hostname; } catch { host = ''; }
+    if (!host) return;
+    app.settings = await saveSettings({ siteBlocklist: [...app.settings.siteBlocklist, host] });
+    st.sensitive = { sensitive: true, reason: 'blocklist' };
+    toast(`${host} will never be summarised automatically or saved.`);
+    renderState(st);
+  });
 
   const group = $('lengthGroup');
   for (const b of group.querySelectorAll('button')) b.addEventListener('click', () => onLengthPick(b.dataset.length));

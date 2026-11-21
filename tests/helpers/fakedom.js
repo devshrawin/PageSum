@@ -71,6 +71,7 @@ export function el(tag, attrs = {}, ...kids) {
     getAttribute(n) { return n in attrs ? String(attrs[n]) : null; },
     hasAttribute(n) { return n in attrs; },
     get textContent() { return this.childNodes.map((c) => (c.nodeType === 3 ? c.nodeValue : c.textContent)).join(''); },
+    set textContent(v) { this.childNodes = []; if (v !== '' && v != null) this.appendChild(t(String(v))); },
     get innerText() { return this.textContent; },
     closest(sel) {
       for (let n = this; n; n = n.parentNode) if (n.nodeType === 1 && n.tagName === sel.toUpperCase()) return n;
@@ -203,10 +204,15 @@ export function makeEnv({
     };
   }
   sandbox.window = sandbox;
+  // Observers are recorded so tests can fire their callbacks by hand.
+  const observers = { mo: [], ro: [] };
+  sandbox.MutationObserver = class { constructor(cb) { this.cb = cb; this.disconnected = false; observers.mo.push(this); } observe(t, o) { this.target = t; this.opts = o; } disconnect() { this.disconnected = true; } };
+  sandbox.ResizeObserver = class { constructor(cb) { this.cb = cb; this.disconnected = false; this.targets = []; observers.ro.push(this); } observe(t) { this.targets.push(t); } disconnect() { this.disconnected = true; } };
+  sandbox.requestAnimationFrame = (fn) => setTimeout(fn, 0);
   const ctx = vm.createContext(sandbox);
 
   const env = {
-    ctx, sandbox, document, sent, listeners, highlights, ranges, html, body,
+    ctx, sandbox, document, sent, listeners, highlights, ranges, html, body, observers,
     load(files = ['core.js', 'extract.js', 'highlight.js']) {
       for (const f of files) vm.runInContext(fs.readFileSync(path.join(CONTENT_DIR, f), 'utf8'), ctx, { filename: f });
       return env;

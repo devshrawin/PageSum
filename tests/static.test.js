@@ -120,7 +120,7 @@ test('every element id the panel code looks up exists in sidepanel.html', () => 
 });
 
 test('panel modules link: every import resolves to a real export', async () => {
-  for (const name of ['dom.js', 'agent.js', 'media.js', 'request.js', 'tabs.js', 'page.js']) {
+  for (const name of fs.readdirSync(path.join(EXT, 'panel')).filter((x) => x.endsWith('.js'))) {
     const url = 'file:///' + path.join(EXT, 'panel', name).replace(/\\/g, '/');
     const mod = await import(url);
     assert.ok(Object.keys(mod).length > 0, name);
@@ -274,6 +274,85 @@ test('no unicode glyph icons in the panel UI code (icons are inline SVG)', () =>
     const bad = s.match(/[←-⇿☀-➿⬀-⯿\uD83C-\uD83E][\uDC00-\uDFFF]?/);
     assert.ok(!bad, `${rel(f)} contains a glyph icon: ${bad && bad[0]}`);
   }
+});
+
+// ---------- phase 3: guide, tools, compare, history, options ----------
+
+test('the tab bar follows the WAI-ARIA tabs pattern: tablist, tabs with aria-controls, tabpanels labelled by their tab', () => {
+  const h = read(path.join(EXT, 'sidepanel.html'));
+  assert.ok(/id="tabbar"[^>]*role="tablist"/.test(h));
+  for (const t of ['page', 'tools', 'guide', 'compare', 'history']) {
+    assert.ok(new RegExp(`id="tab-${t}"[^>]*role="tab"`).test(h), `tab-${t}`);
+    assert.ok(new RegExp(`id="tab-${t}"[^>]*aria-controls="panel-${t}"`).test(h), `aria-controls ${t}`);
+    assert.ok(new RegExp(`id="panel-${t}"[^>]*role="tabpanel"[^>]*aria-labelledby="tab-${t}"`).test(h), `panel-${t}`);
+    assert.ok(new RegExp(`id="tab-${t}"[^>]*aria-label="`).test(h), `tab-${t} keeps its name when the label is hidden at narrow widths`);
+  }
+  assert.equal((h.match(/aria-selected="true"/g) || []).length, 1, 'exactly one tab selected at load');
+  // the ids phase 3 relies on
+  for (const id of 'toolGrid toolOptions toolResult translateTarget replyTone replyNotes tableWhat formContext visionQ guideGoal guideStart guideSteps guideBack guideNext guideShowBtn guideReplan guideDone compareFocus historySearch historyList'.split(' ')) {
+    assert.ok(new RegExp(`\\bid="${id}"`).test(h), `missing #${id}`);
+  }
+  const nav = read(path.join(EXT, 'panel', 'nav.js'));
+  for (const k of ['ArrowRight', 'ArrowLeft', 'Home', 'End']) assert.ok(nav.includes(k), `nav handles ${k}`);
+});
+
+test('the options page has a control for every v2 setting and every id options.js looks up', () => {
+  const html = read(path.join(EXT, 'options.html'));
+  const have = new Set([...html.matchAll(/ id="([^"]+)"/g)].map((m) => m[1]));
+  for (const id of ['citations', 'structuredExtraction', 'readFrames', 'explicitCache', 'translateTarget', 'sensitiveGuard', 'historyEnabled', 'historySaveChat', 'siteBlocklist', 'siteList', 'revokeAll', 'clearHistory']) {
+    assert.ok(have.has(id), `options.html lacks #${id}`);
+  }
+  for (const name of ['vision', 'ytmode']) assert.ok(html.includes(`name="${name}"`), name);
+  for (const v of ['ask', 'auto', 'off', 'video', 'transcript']) assert.ok(html.includes(`value="${v}"`), v);
+  const js = read(path.join(EXT, 'options.js'));
+  for (const m of js.matchAll(/\$\('([A-Za-z][\w-]*)'\)/g)) assert.ok(have.has(m[1]), `#${m[1]} used by options.js but missing from options.html`);
+  for (const k of ['permissions.getAll', 'permissions.remove']) assert.ok(js.includes(k), k);
+});
+
+test('every command the panel sends to the page agent is one the agent registers', () => {
+  const registered = new Set();
+  for (const f of contentFiles) for (const m of read(f).matchAll(/PS\.register\('(\w+)'/g)) registered.add(m[1]);
+  assert.ok(registered.size >= 12, [...registered].join(','));
+  const used = new Set();
+  for (const f of files.filter((x) => rel(x).startsWith('extension/panel/') && x.endsWith('.js'))) {
+    for (const m of read(f).matchAll(/callAgent\(\s*[^,()]+(?:\([^)]*\))?\s*,\s*'(\w+)'/g)) used.add(m[1]);
+  }
+  assert.ok(used.size >= 8, [...used].join(','));
+  for (const name of used) assert.ok(registered.has(name), `panel calls '${name}' but no content script registers it`);
+  // and none of them is an action on the page
+  for (const bad of ['click', 'type', 'fill', 'submit', 'focus', 'navigate', 'setValue', 'select']) assert.ok(!registered.has(bad), bad);
+});
+
+test('guide.js never reads what the user typed', () => {
+  const s = read(path.join(EXT, 'content', 'guide.js'));
+  assert.ok(!/\.value\b/.test(s), 'no .value');
+  assert.ok(!/selectedIndex|selectedOptions|\.innerText/.test(s));
+  assert.ok(!/getSelection|clipboard/i.test(s));
+  assert.ok(/noText/.test(s), 'textarea and password labels never fall back to element text');
+});
+
+test('the Guide and Tools panel code only draws text with textContent and never links', () => {
+  for (const name of ['guide.js', 'tools.js', 'compare.js']) {
+    const s = read(path.join(EXT, 'panel', name));
+    assert.ok(!/setAttribute\(\s*['"]href['"]/.test(s), `${name} builds a link`);
+    assert.ok(!/\bhref:/.test(s), `${name} sets an href`);
+    assert.ok(!/window\.open|location\.(assign|replace)/.test(s), `${name} navigates`);
+  }
+});
+
+test('Copy as CSV goes through the formula-injection guard', () => {
+  const tools = read(path.join(EXT, 'panel', 'tools.js'));
+  assert.ok(/toCsv\(columns, rows2d\)/.test(tools));
+  const ex = read(path.join(EXT, 'lib', 'exporters.js'));
+  assert.ok(ex.includes('FORMULA_START') && ex.includes("\"'\""));
+});
+
+test('history is local only: it uses storage.local and never the network', () => {
+  const h = read(path.join(EXT, 'lib', 'history.js'));
+  assert.ok(h.includes('chrome.storage.local'));
+  assert.ok(!/\bfetch\(|XMLHttpRequest|storage\.sync/.test(h));
+  const p = read(path.join(EXT, 'panel', 'history.js'));
+  assert.ok(!/\bfetch\(|storage\.sync/.test(p));
 });
 
 // ---------- the two findPassage copies stay identical ----------

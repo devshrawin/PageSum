@@ -14,3 +14,32 @@
   border-radius: 4px;
   box-shadow: 0 0 0 4px rgba(79, 70, 229, 0.25);
 }
+
+/* Guide mode overlay (spec 9.3): outline and tooltip, never any control. */
+.pagesum-ov-target {
+  all: initial;
+  position: fixed;
+  pointer-events: none;
+  z-index: 2147483646;
+  border: 3px solid #4F46E5;
+  border-radius: 6px;
+  box-shadow: 0 0 0 4px rgba(79, 70, 229, 0.2);
+  box-sizing: border-box;
+}
+.pagesum-ov-tip {
+  all: initial;
+  position: fixed;
+  pointer-events: none;
+  z-index: 2147483647;
+  max-width: 280px;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #1F1B3A;
+  color: #FFFFFF;
+  font: 500 13px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+  overflow-wrap: anywhere;
+}
+.pagesum-ov-target.pagesum-ov-warn { border-color: #D97706; box-shadow: 0 0 0 4px rgba(217, 119, 6, 0.25); }
+.pagesum-ov-tip.pagesum-ov-warn { background: #7C2D12; border: 2px solid #D97706; }

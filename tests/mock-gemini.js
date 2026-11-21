@@ -20,6 +20,47 @@ export const MODELS_FIXTURE = {
   ],
 };
 
+// Fixed JSON answers, chosen by key: the tool and compare tests use them.
+export const JSON_FIXTURES = {
+  'json-items': {
+    items: [{ task: 'Send the report', owner: 'Ann', due: '2026-12-01', dueText: null, sources: ['c1', 'c99'] }, { task: 'Review budget', owner: null, due: 'soon', dueText: 'soon', sources: [] }],
+    dates: [{ date: '2026-12-01', text: '1 December', what: 'Report due', sources: ['c1'] }],
+  },
+  'json-quiz': {
+    cards: [{ q: 'What is it?', a: 'A page.', sources: ['c1'] }],
+    quiz: [{ q: 'Pick one', choices: ['a', 'b', 'c', 'd'], answer: 1, why: 'Because b.', sources: ['c1'] }],
+  },
+  'json-table': {
+    columns: ['Name', 'Name', 'Price'],
+    rows: [{ cells: ['A', 'x'], sources: ['c1'] }, { cells: ['=HYPERLINK("http://evil","click")', 'y', '-12.5', 'extra'], sources: ['c2', 'zz'] }],
+    notes: null,
+  },
+  'json-form': {
+    fields: [
+      { elementId: 'e1', explanation: 'Your email address.', format: 'name@example.com', draft: 'me@example.com' },
+      { elementId: 'e2', explanation: 'Choose a password.', format: null, draft: 'hunter2' },
+      { elementId: 'e9', explanation: 'Not on the page.', format: null, draft: null },
+    ],
+  },
+  'json-guide': {
+    feasible: true, summary: 'Open settings, then delete the repository.',
+    steps: [
+      { elementId: 'e1', action: 'click', instruction: 'Click Settings.', valueHint: null, caution: null },
+      { elementId: 'e77', action: 'click', instruction: 'Click a button that is not on the page.', valueHint: null, caution: null },
+      { elementId: null, action: 'wait', instruction: 'Wait for the page to load.', valueHint: null, caution: null },
+      { elementId: 'e2', action: 'click', instruction: 'Click Delete repository.', valueHint: null, caution: null },
+    ],
+  },
+  'json-guide-empty': { feasible: true, summary: 'All of it.', steps: [{ elementId: 'e88', action: 'click', instruction: 'Ghost.', valueHint: null, caution: null }] },
+  'json-compare': {
+    criteria: [
+      { name: 'Price', values: [{ tab: 't1', value: '$5', sources: ['t1c1'] }, { tab: 't2', value: '$7', sources: ['t2c1', 't1c1'] }, { tab: 't3', value: 'ghost', sources: [] }] },
+      { name: 'Speed', values: [{ tab: 't2', value: 'fast', sources: [] }] },
+    ],
+    summary: 'A is cheaper, B is faster.', verdict: 'Pick A for price.',
+  },
+};
+
 export function startMock() {
   let last = null;
   const requests = [];
@@ -64,6 +105,20 @@ export function startMock() {
             { '@type': 'type.googleapis.com/google.rpc.RetryInfo', retryDelay: '37s' },
           ]));
         case 'notfound': return json(404, errBody(404, 'models/x is not found'));
+        case 'json-ok': {
+          const gc = body && body.generationConfig;
+          if (!(gc && gc.responseFormat && gc.responseFormat.text && gc.responseFormat.text.schema && gc.responseFormat.text.mimeType === 'APPLICATION_JSON')) {
+            return json(400, errBody(400, 'ASSERT: generationConfig.responseFormat.text.schema is required'));
+          }
+          break;
+        }
+        case 'schema-legacy': {
+          const gc = body && body.generationConfig;
+          if (gc && gc.responseFormat) return json(400, errBody(400, 'Invalid JSON payload received. Unknown name "responseFormat" at \'generation_config\': Cannot find field.'));
+          if (!(gc && gc.responseJsonSchema && gc.responseMimeType === 'application/json')) return json(400, errBody(400, 'ASSERT: legacy fields required'));
+          break;
+        }
+        case 'json-guide-any': break;
         case 'busy': return json(503, errBody(503, 'The model is overloaded.'));
         case 'pdf': {
           const p = body && body.contents && body.contents[0] && body.contents[0].parts && body.contents[0].parts[0];
@@ -126,6 +181,36 @@ export function startMock() {
         res.write(sse({ candidates: [{ content: { role: 'model', parts: [{ text: 'SECRET THINKING', thought: true }, { text: 'Visible' }] } }] }));
         await gap();
         res.write(sse(textEvent(' answer', { finishReason: 'STOP' })));
+        return res.end();
+      }
+      if (JSON_FIXTURES[key]) {
+        const full = JSON.stringify(JSON_FIXTURES[key]);
+        const a = Math.floor(full.length / 2);
+        for (const piece of [full.slice(0, a), full.slice(a)]) {
+          res.write(sse(textEvent(piece)));
+          await gap();
+          if (closed()) return;
+        }
+        res.write(sse({ candidates: [{ content: { role: 'model', parts: [{ text: '' }] }, finishReason: 'STOP' }] }));
+        return res.end();
+      }
+      if (key === 'json-ok' || key === 'schema-legacy' || key === 'json-guide-any') {
+        const full = JSON.stringify({
+          feasible: true, summary: 'Open the settings page.',
+          steps: [{ elementId: 'e1', action: 'click', instruction: 'Click the Settings link.', valueHint: null, caution: null }],
+        });
+        const a = Math.floor(full.length / 3);
+        const b = Math.floor((2 * full.length) / 3);
+        for (const piece of [full.slice(0, a), full.slice(a, b), full.slice(b)]) {
+          res.write(sse(textEvent(piece)));
+          await gap();
+          if (closed()) return;
+        }
+        res.write(sse({ candidates: [{ content: { role: 'model', parts: [{ text: '' }] }, finishReason: 'STOP' }] }));
+        return res.end();
+      }
+      if (key === 'json-bad') {
+        res.write(sse(textEvent('{"steps":', { finishReason: 'STOP' })));
         return res.end();
       }
       if (key === 'maxtokens') {
