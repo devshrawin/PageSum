@@ -69,7 +69,6 @@ Needs Node 21 or newer for the test glob (no install, no dependencies).
 
 ```
 npm test            # node --test "tests/*.test.js"
-npm run icons       # regenerates extension/icons/*.png
 powershell -File tools/pack.ps1   # dist/<yyyy-mm-dd>/PageSum-v<version>.zip
 ```
 

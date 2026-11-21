@@ -1,65 +1,36 @@
-:root {
-  --bg: #ffffff;
-  --fg: #1c1c28;
-  --muted: #5f6272;
-  --card: #f5f6fa;
-  --border: #d5d8e2;
-  --accent: #4F46E5;
-  --accent-fg: #ffffff;
-  --danger: #b42318;
-}
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #14151c;
-    --fg: #e8e9f0;
-    --muted: #a0a3b5;
-    --card: #1e2029;
-    --border: #353848;
-    --accent: #818CF8;
-    --accent-fg: #14151c;
-    --danger: #f97066;
-  }
-}
+/* Options page. Tokens and components are in ps.css; this file only adapts what options.js creates. */
 * { box-sizing: border-box; }
-body {
-  margin: 0;
-  background: var(--bg);
-  color: var(--fg);
-  font: 14px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+html { background: var(--ps-bg); }
+body { margin: 0; }
+[hidden] { display: none !important; }
+a { color: var(--ps-accent-text); }
+:focus-visible { outline: none; box-shadow: var(--ps-focus-ring); border-radius: 4px; }
+.input:focus-visible { box-shadow: 0 0 0 3px var(--ps-focus-soft); }
+
+.row-fill > .select-wrap { flex: 1; min-width: 0; }
+.field { border: 0; padding: 0; margin: 0; min-width: 0; }
+.field .input { max-width: 100%; }
+fieldset.field legend { padding: 0; margin-bottom: 6px; }
+.opt-section-body .hint { max-width: 56ch; }
+
+/* Length picker: radios styled as a segmented control */
+.seg-opt { position: relative; display: inline-flex; }
+.seg-opt input { position: absolute; opacity: 0; inset: 0; margin: 0; cursor: pointer; }
+.seg-opt span {
+  display: inline-flex; align-items: center; height: 30px; padding: 0 14px; border-radius: 7px;
+  font: 500 var(--ps-text-sm)/1 var(--ps-font-sans); color: var(--ps-text-secondary);
+  transition: background-color var(--ps-dur-2) var(--ps-ease-out), color var(--ps-dur-2) var(--ps-ease-out);
 }
-main { max-width: 640px; margin: 0 auto; padding: 24px 16px 64px; }
-h1 { font-size: 22px; margin: 0 0 16px; }
-h2 { font-size: 16px; margin: 0 0 8px; }
-section { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 16px; margin-bottom: 16px; }
-.row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; }
-.row > input[type="password"], .row > input[type="text"], .row > select { flex: 1 1 240px; }
-input[type="password"], input[type="text"], input[type="number"], select {
-  font: inherit; color: var(--fg); background: var(--bg);
-  border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; min-height: 32px;
-}
-.field { display: flex; flex-direction: column; gap: 4px; margin: 12px 0; }
-.field input { max-width: 320px; }
-fieldset { border: 0; padding: 0; margin: 0 0 4px; }
-legend { padding: 0; margin-bottom: 4px; }
-.inline { display: inline-flex; align-items: center; gap: 6px; margin-right: 16px; }
-.btn {
-  font: inherit; color: var(--fg); background: var(--bg);
-  border: 1px solid var(--border); border-radius: 6px; padding: 6px 12px; min-height: 32px; cursor: pointer;
-}
-.btn:hover { border-color: var(--accent); }
-.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
-.btn.danger { color: var(--danger); }
-.btn:disabled { opacity: 0.5; cursor: default; }
-:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-a { color: var(--accent); }
-.muted { color: var(--muted); margin: 4px 0; }
-.note { color: var(--muted); font-size: 13px; margin: 8px 0 0; }
-.msg { margin: 4px 0; min-height: 1.5em; }
-.msg.ok { color: var(--fg); }
-.msg.err { color: var(--danger); }
-.msg.warn { color: var(--muted); }
-.toast {
-  position: fixed; right: 16px; bottom: 16px;
-  background: var(--accent); color: var(--accent-fg);
-  padding: 6px 12px; border-radius: 6px; font-size: 13px;
-}
+.seg-opt:hover span { color: var(--ps-text); }
+.seg-opt input:checked + span { background: var(--ps-seg-active); color: var(--ps-text); box-shadow: var(--ps-shadow-sm), 0 0 0 1px var(--ps-border); }
+.seg-opt input:focus-visible + span { box-shadow: var(--ps-focus-ring); }
+
+/* Status messages written by options.js: <p.msg class="ok|err|warn"> */
+.msg { margin: 0; min-height: 0; font-size: var(--ps-text-xs); line-height: var(--ps-lh-xs); font-weight: 500; color: var(--ps-text-muted); }
+.msg:empty { display: none; }
+.msg.ok { color: var(--ps-success); }
+.msg.err { color: var(--ps-danger); }
+.msg.warn { color: var(--ps-warning); }
+.btn.danger, .btn-danger { color: var(--ps-danger); }
+
+.opt-toast { z-index: 10; left: 0; right: 0; bottom: 24px; margin: 0 auto; width: max-content; transform: none; }

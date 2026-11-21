@@ -4,95 +4,129 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>PageSum</title>
+  <link rel="stylesheet" href="ps.css">
   <link rel="stylesheet" href="sidepanel.css">
 </head>
 <body>
-  <header>
-    <h1 id="pageTitle" class="page-title">PageSum</h1>
-    <button id="settingsBtn" type="button" class="icon-btn settings-btn" aria-label="Open settings" title="Settings">&#9881;</button>
+  <header class="ps-header">
+    <span class="ps-logo" aria-hidden="true">
+      <svg viewBox="0 0 96 96" width="24" height="24"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5446E8"/><stop offset="1" stop-color="#7A4FE0"/></linearGradient></defs><rect width="96" height="96" rx="22" fill="url(#lg)"/><circle cx="41" cy="43" r="21" fill="none" stroke="#fff" stroke-width="8"/><path d="M57 59 74 76" stroke="#fff" stroke-width="10" stroke-linecap="round"/><rect x="30" y="35.5" width="16" height="5" rx="2.5" fill="#fff"/><rect x="30" y="45.5" width="22" height="5" rx="2.5" fill="#fff" fill-opacity=".72"/><path d="M74 12Q75.3 20.7 84 22 75.3 23.3 74 32 72.7 23.3 64 22 72.7 20.7 74 12Z" fill="#fff"/></svg>
+    </span>
+    <div class="ps-titles"><h1 id="pageTitle" class="ps-title">PageSum</h1></div>
+    <button id="settingsBtn" type="button" class="btn btn-icon btn-sm" aria-label="Open settings" title="Settings">
+      <svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+    </button>
   </header>
 
   <div id="notices" class="notices"></div>
 
-  <main id="content">
+  <main id="content" class="ps-body">
     <div id="panel-page" class="panel">
-      <section id="view-init" class="view">
-        <div class="spinner" aria-hidden="true"></div>
-        <p class="center">Reading page&hellip;</p>
-        <p class="center static-working">Working&hellip;</p>
+      <section id="view-init" class="view" aria-label="Reading page">
+        <div class="card">
+          <div class="status"><span class="spinner" aria-hidden="true"></span><span>Reading page&hellip;</span></div>
+          <div class="sk-stack" aria-hidden="true">
+            <div class="skeleton sk-line sk-accent" style="width:34%"></div>
+            <div class="skeleton sk-line" style="width:96%"></div>
+            <div class="skeleton sk-line" style="width:88%"></div>
+            <div class="skeleton sk-line" style="width:92%"></div>
+            <div class="skeleton sk-line" style="width:60%"></div>
+          </div>
+        </div>
       </section>
 
       <section id="view-needKey" class="view" hidden>
-        <h2>Add your Gemini API key</h2>
-        <ol class="steps">
-          <li>Open <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer">aistudio.google.com/apikey</a></li>
-          <li>Click "Create API key"</li>
-          <li>Paste it below</li>
-        </ol>
-        <div class="row">
-          <input id="keyInput" type="password" autocomplete="off" spellcheck="false" aria-label="Gemini API key" placeholder="AIza...">
-          <button id="keyShow" type="button" class="btn">Show</button>
+        <div class="card setup">
+          <h2>Add your Gemini API key</h2>
+          <p class="hint">Free from Google AI Studio. Takes a minute.</p>
+          <ol class="steps">
+            <li class="step"><span class="step-num">1</span><span>Open <a class="link" href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer">aistudio.google.com/apikey</a></span></li>
+            <li class="step"><span class="step-num">2</span><span>Click &ldquo;Create API key&rdquo;</span></li>
+            <li class="step"><span class="step-num">3</span><span>Paste it below</span></li>
+          </ol>
+          <div class="field">
+            <div class="row row-fill">
+              <input id="keyInput" class="input input-mono" type="password" autocomplete="off" spellcheck="false" aria-label="Gemini API key" placeholder="AIza...">
+              <button id="keyShow" type="button" class="btn btn-secondary">Show</button>
+            </div>
+            <p id="keyMsg" class="field-msg is-error msg" role="alert"></p>
+          </div>
+          <div class="row">
+            <button id="keySave" type="button" class="btn btn-primary primary">Save key</button>
+            <button id="moreSettings" type="button" class="link link-muted">More settings</button>
+          </div>
+          <p class="privacy">
+            <svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>
+            <span>Stored unencrypted in this browser on this device. Only sent to Google.</span>
+          </p>
         </div>
-        <div class="row">
-          <button id="keySave" type="button" class="btn primary">Save</button>
-          <button id="moreSettings" type="button" class="link-btn">More settings</button>
+      </section>
+
+      <section id="view-restricted" class="view state" hidden>
+        <svg class="i i-20 state-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>
+        <h2 class="state-title">Can't read this page</h2>
+        <p id="restrictedText" class="state-text"></p>
+      </section>
+
+      <section id="view-needAccess" class="view state" hidden>
+        <svg class="i i-20 state-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="15" r="4"/><path d="M11 12l9-9M16 7l3 3M14 9l2 2"/></svg>
+        <h2 id="needAccessTitle" class="state-title">PageSum can't read this tab yet.</h2>
+        <div class="state-actions">
+          <button id="allowSiteBtn" type="button" class="btn btn-primary primary">Allow on this site</button>
+          <button id="allowAllBtn" type="button" class="btn btn-secondary">Allow on all sites</button>
         </div>
-        <p id="keyMsg" class="msg" role="alert"></p>
-        <p class="muted small">Stored unencrypted in this browser on this device. Only sent to Google.</p>
+        <p id="needAccessHint" class="state-text"></p>
       </section>
 
-      <section id="view-restricted" class="view center" hidden>
-        <div class="big-icon" aria-hidden="true">&#128274;</div>
-        <p id="restrictedText"></p>
+      <section id="view-empty" class="view state" hidden>
+        <h2 class="state-title">Not enough to read</h2>
+        <p class="state-text">Not enough readable text on this page.</p>
+        <div class="state-actions"><button id="tryAnyway" type="button" class="btn btn-secondary">Try anyway</button></div>
       </section>
 
-      <section id="view-needAccess" class="view center" hidden>
-        <div class="big-icon" aria-hidden="true">&#128273;</div>
-        <p id="needAccessTitle">PageSum can't read this tab yet.</p>
-        <div class="actions">
-          <button id="allowSiteBtn" type="button" class="btn primary">Allow on this site</button>
-          <button id="allowAllBtn" type="button" class="btn">Allow on all sites</button>
-        </div>
-        <p id="needAccessHint" class="muted small"></p>
-      </section>
-
-      <section id="view-empty" class="view center" hidden>
-        <p>Not enough readable text on this page.</p>
-        <button id="tryAnyway" type="button" class="btn">Try anyway</button>
-      </section>
-
-      <section id="view-idle" class="view center" hidden>
-        <button id="summariseBtn" type="button" class="btn primary">Summarise this page</button>
+      <section id="view-idle" class="view state" hidden>
+        <svg class="i i-20 state-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/><path d="M19 16l.7 1.8L21.5 18.5l-1.8.7L19 21l-.7-1.8-1.8-.7 1.8-.7z"/></svg>
+        <div class="state-actions"><button id="summariseBtn" type="button" class="btn btn-primary btn-lg primary">Summarise this page</button></div>
       </section>
 
       <section id="view-summary" class="view" hidden>
         <div class="card">
-          <div class="toolbar">
+          <div class="toolbar summary-toolbar">
             <div id="lengthGroup" class="seg" role="radiogroup" aria-label="Summary length">
               <button type="button" role="radio" data-length="short" aria-checked="false" tabindex="-1">Short</button>
               <button type="button" role="radio" data-length="medium" aria-checked="true" tabindex="0">Medium</button>
               <button type="button" role="radio" data-length="detailed" aria-checked="false" tabindex="-1">Detailed</button>
             </div>
-            <button id="regenBtn" type="button" class="icon-btn" aria-label="Regenerate summary" title="Regenerate">&#8635;</button>
-            <button id="copyBtn" type="button" class="icon-btn text" aria-label="Copy summary" title="Copy"><span id="copyLabel">&#10697;</span></button>
-            <button id="stopBtn" type="button" class="icon-btn" aria-label="Stop generating" title="Stop" hidden>&#9632;</button>
+            <span class="spacer"></span>
+            <button id="regenBtn" type="button" class="btn btn-icon btn-sm" aria-label="Regenerate summary" title="Regenerate">
+              <svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.3-5.7"/><path d="M20 4v5h-5"/></svg>
+            </button>
+            <button id="copyBtn" type="button" class="btn btn-ghost btn-sm" aria-label="Copy summary" title="Copy">
+              <svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></svg>
+              <span id="copyLabel">Copy</span>
+            </button>
+            <button id="stopBtn" type="button" class="btn btn-icon btn-sm" aria-label="Stop generating" title="Stop" hidden>
+              <svg class="i" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
+            </button>
           </div>
-          <div id="summaryBody" class="md" aria-busy="false"></div>
+          <div id="summaryBody" class="md summary-body" aria-busy="false"></div>
           <div id="summaryError" hidden></div>
         </div>
-        <div id="chat" class="chat"></div>
+        <div id="chat" class="chat chat-thread"></div>
       </section>
     </div>
   </main>
 
-  <footer id="footer" hidden>
-    <div class="ask">
+  <footer id="footer" class="ps-footer" hidden>
+    <div class="composer">
       <textarea id="question" rows="1" placeholder="Ask about this page&hellip;" aria-label="Ask about this page"></textarea>
-      <button id="sendBtn" type="button" class="btn primary">Send</button>
+      <button id="sendBtn" type="button" class="btn btn-primary btn-send primary" aria-label="Send">
+        <svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5"/><path d="M5 12l7-7 7 7"/></svg>
+      </button>
     </div>
-    <div class="meta">
-      <span id="modelLabel" class="muted small"></span>
-      <button id="newChatBtn" type="button" class="link-btn small">New chat</button>
+    <div class="composer-meta">
+      <span id="modelLabel" class="model-label"></span>
+      <button id="newChatBtn" type="button" class="link link-muted">New chat</button>
     </div>
   </footer>
 

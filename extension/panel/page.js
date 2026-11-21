@@ -92,11 +92,11 @@ function renderNotices(st) {
   for (const n of st.notices) {
     const row = el('div', { class: 'notice' }, el('span', { class: 'txt', text: n.text }));
     if (n.action) {
-      const b = el('button', { type: 'button', class: 'link-btn small', text: n.action.label });
+      const b = el('button', { type: 'button', class: 'link', text: n.action.label });
       b.addEventListener('click', n.action.run);
       row.appendChild(b);
     }
-    const x = el('button', { type: 'button', class: 'icon-btn', 'aria-label': 'Dismiss notice', text: '×' });
+    const x = el('button', { type: 'button', class: 'btn btn-icon btn-sm', 'aria-label': 'Dismiss notice', text: '×' });
     x.addEventListener('click', () => {
       st.notices = st.notices.filter((m) => m !== n);
       renderNotices(st);
@@ -196,7 +196,7 @@ function updateControls(st) {
 
 function modelBubble(st, raw, { streaming = false, pending = false } = {}) {
   const body = el('div', { class: 'md' });
-  const copy = el('button', { type: 'button', class: 'link-btn', text: 'Copy' });
+  const copy = el('button', { type: 'button', class: 'link link-muted', text: 'Copy' });
   const wrap = el('div', { class: 'msg-model' + (pending ? ' pending' : '') }, body, el('div', { class: 'bubble-tools' }, copy));
   if (raw) body.replaceChildren(renderMd(st, raw, streaming));
   else copy.hidden = true;
@@ -519,7 +519,7 @@ export function initPage() {
   });
 
   $('regenBtn').addEventListener('click', () => { const st = shownState(); if (st && !st.ctrl && st.page) startSummary(st, st.conv.length); });
-  $('copyBtn').addEventListener('click', () => { const st = shownState(); if (st) copyText(stripCitations(st.conv.summaryRaw), $('copyLabel'), '⧉'); });
+  $('copyBtn').addEventListener('click', () => { const st = shownState(); if (st) copyText(stripCitations(st.conv.summaryRaw), $('copyLabel'), 'Copy'); });
   $('stopBtn').addEventListener('click', () => {
     const st = shownState();
     if (st && st.ctrl) st.ctrl.abort();

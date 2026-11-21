@@ -56,7 +56,7 @@ export function buildErrorCard(err, onRetry, opts = {}) {
   const card = el('div', { class: 'err-card' }, el('h3', { text: info.title }), el('p', { text: info.body }));
   const actions = el('div', { class: 'actions' });
   const add = (label, fn) => {
-    const b = el('button', { type: 'button', class: 'btn', text: label });
+    const b = el('button', { type: 'button', class: 'btn btn-secondary btn-sm', text: label });
     b.addEventListener('click', fn);
     actions.appendChild(b);
   };

@@ -4,66 +4,90 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>PageSum settings</title>
+  <link rel="stylesheet" href="ps.css">
   <link rel="stylesheet" href="options.css">
 </head>
-<body>
-  <main>
-    <h1>PageSum settings</h1>
+<body class="opt">
+  <main class="opt-col">
+    <div class="opt-head">
+      <svg viewBox="0 0 96 96" width="36" height="36" aria-hidden="true"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5446E8"/><stop offset="1" stop-color="#7A4FE0"/></linearGradient></defs><rect width="96" height="96" rx="22" fill="url(#lg)"/><circle cx="41" cy="43" r="21" fill="none" stroke="#fff" stroke-width="8"/><path d="M57 59 74 76" stroke="#fff" stroke-width="10" stroke-linecap="round"/><rect x="30" y="35.5" width="16" height="5" rx="2.5" fill="#fff"/><rect x="30" y="45.5" width="22" height="5" rx="2.5" fill="#fff" fill-opacity=".72"/><path d="M74 12Q75.3 20.7 84 22 75.3 23.3 74 32 72.7 23.3 64 22 72.7 20.7 74 12Z" fill="#fff"/></svg>
+      <div>
+        <h1 class="opt-title">PageSum settings</h1>
+        <p class="opt-sub">Summaries and answers from your own Gemini API key.</p>
+      </div>
+    </div>
 
-    <section aria-labelledby="h-key">
-      <h2 id="h-key">API key</h2>
-      <div class="row">
-        <input id="apiKey" type="password" autocomplete="off" spellcheck="false" aria-label="Gemini API key" placeholder="AIza...">
-        <button id="keyShow" type="button" class="btn">Show</button>
+    <section class="opt-section" aria-labelledby="h-key">
+      <div class="opt-section-head"><h2 id="h-key">API key</h2><p>Get a free key at <a class="link" href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer">aistudio.google.com/apikey</a>.</p></div>
+      <div class="opt-section-body">
+        <div class="field">
+          <div class="row row-fill">
+            <input id="apiKey" class="input input-mono" type="password" autocomplete="off" spellcheck="false" aria-label="Gemini API key" placeholder="AIza...">
+            <button id="keyShow" type="button" class="btn btn-secondary">Show</button>
+          </div>
+          <p id="keyMsg" class="msg" role="status" aria-live="polite"></p>
+        </div>
+        <div class="row">
+          <button id="keySave" type="button" class="btn btn-primary primary">Save</button>
+          <button id="keyTest" type="button" class="btn btn-secondary">Test key</button>
+          <button id="keyRemove" type="button" class="btn btn-danger danger">Remove key</button>
+        </div>
+        <p class="hint">Your key is stored unencrypted in this browser profile's extension storage and is sent only to generativelanguage.googleapis.com. Page text you summarise is sent to Google's Gemini API. On the free tier, Google may use inputs to improve its products. Don't summarise pages with sensitive data.</p>
       </div>
-      <div class="row">
-        <button id="keySave" type="button" class="btn primary">Save</button>
-        <button id="keyTest" type="button" class="btn">Test key</button>
-        <button id="keyRemove" type="button" class="btn danger">Remove key</button>
-      </div>
-      <p id="keyMsg" class="msg" role="status" aria-live="polite"></p>
-      <p class="muted">Get a free key at <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer">aistudio.google.com/apikey</a>.</p>
-      <p class="note">Your key is stored unencrypted in this browser profile's extension storage and is sent only to generativelanguage.googleapis.com. Page text you summarise is sent to Google's Gemini API. On the free tier, Google may use inputs to improve its products. Don't summarise pages with sensitive data.</p>
     </section>
 
-    <section aria-labelledby="h-model">
-      <h2 id="h-model">Model</h2>
-      <div class="row">
-        <select id="model" aria-label="Model"></select>
-        <button id="modelRefresh" type="button" class="btn">Refresh models</button>
+    <section class="opt-section" aria-labelledby="h-model">
+      <div class="opt-section-head"><h2 id="h-model">Model</h2><p>Which Gemini model answers.</p></div>
+      <div class="opt-section-body">
+        <div class="row row-fill">
+          <div class="select-wrap">
+            <select id="model" class="select" aria-label="Model"></select>
+            <svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+          </div>
+          <button id="modelRefresh" type="button" class="btn btn-secondary">Refresh models</button>
+        </div>
+        <div class="row row-fill" id="customRow" hidden>
+          <input id="customModel" class="input input-mono" type="text" autocomplete="off" spellcheck="false" aria-label="Custom model id" placeholder="e.g. gemini-3.8-flash">
+        </div>
+        <p id="modelMsg" class="msg" role="status" aria-live="polite"></p>
       </div>
-      <div class="row" id="customRow" hidden>
-        <input id="customModel" type="text" autocomplete="off" spellcheck="false" aria-label="Custom model id" placeholder="e.g. gemini-3.8-flash">
-      </div>
-      <p id="modelMsg" class="msg" role="status" aria-live="polite"></p>
     </section>
 
-    <section aria-labelledby="h-summary">
-      <h2 id="h-summary">Summary</h2>
-      <fieldset>
-        <legend>Default length</legend>
-        <label class="inline"><input type="radio" name="length" value="short"> Short</label>
-        <label class="inline"><input type="radio" name="length" value="medium"> Medium</label>
-        <label class="inline"><input type="radio" name="length" value="detailed"> Detailed</label>
-      </fieldset>
-      <label class="field">Output language
-        <input id="language" type="text" placeholder="Leave empty to match the page" autocomplete="off">
-      </label>
-      <label class="field">Max page characters
-        <input id="maxChars" type="number" min="5000" max="400000" step="5000">
-      </label>
-      <label class="inline"><input id="autoSummarize" type="checkbox"> Summarise automatically when a page stays open in the side panel</label>
+    <section class="opt-section" aria-labelledby="h-summary">
+      <div class="opt-section-head"><h2 id="h-summary">Summary</h2><p>Defaults for new summaries.</p></div>
+      <div class="opt-section-body">
+        <fieldset class="field">
+          <legend class="label">Default length</legend>
+          <div class="seg">
+            <label class="seg-opt"><input type="radio" name="length" value="short"><span>Short</span></label>
+            <label class="seg-opt"><input type="radio" name="length" value="medium"><span>Medium</span></label>
+            <label class="seg-opt"><input type="radio" name="length" value="detailed"><span>Detailed</span></label>
+          </div>
+        </fieldset>
+        <label class="field"><span class="label">Output language</span>
+          <input id="language" class="input" type="text" placeholder="Leave empty to match the page" autocomplete="off">
+        </label>
+        <label class="field"><span class="label">Max page characters</span>
+          <input id="maxChars" class="input" type="number" min="5000" max="400000" step="5000">
+        </label>
+        <label class="switch">
+          <span class="switch-text"><span class="label">Summarise automatically</span><span class="hint">When a page stays open in the side panel.</span></span>
+          <input id="autoSummarize" type="checkbox" role="switch">
+        </label>
+      </div>
     </section>
 
-    <section aria-labelledby="h-data">
-      <h2 id="h-data">Data</h2>
-      <div class="row">
-        <button id="clearCache" type="button" class="btn">Clear cached summaries</button>
-        <span id="dataMsg" class="msg" role="status" aria-live="polite"></span>
+    <section class="opt-section" aria-labelledby="h-data">
+      <div class="opt-section-head"><h2 id="h-data">Data</h2><p>Cached summaries live in this browser only.</p></div>
+      <div class="opt-section-body">
+        <div class="row">
+          <button id="clearCache" type="button" class="btn btn-secondary">Clear cached summaries</button>
+          <span id="dataMsg" class="msg" role="status" aria-live="polite"></span>
+        </div>
       </div>
     </section>
   </main>
-  <div id="toast" class="toast" role="status" aria-live="polite" hidden>Saved</div>
+  <div id="toast" class="toast opt-toast" role="status" aria-live="polite" hidden>Saved</div>
   <script type="module" src="options.js"></script>
 </body>
 </html>
