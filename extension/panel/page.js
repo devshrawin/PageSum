@@ -167,7 +167,14 @@ function renderNeedAccess(st) {
 
 function updateModelLabel() {
   $('modelLabel').textContent = app.settings ? app.settings.model : '';
-  $('beyondToggle').checked = !app.settings || app.settings.beyondPage !== false;
+  syncToggles();
+}
+
+function syncToggles() {
+  const beyond = !app.settings || app.settings.beyondPage !== false;
+  $('beyondToggle').checked = beyond;
+  $('webToggle').checked = !app.settings || app.settings.webSearch !== false;
+  $('webToggle').disabled = !beyond;
 }
 
 /* ---------- summary view ---------- */
@@ -644,9 +651,14 @@ export function initPage() {
     if (st && st.ctrl) st.ctrl.abort();
   });
   $('sendBtn').addEventListener('click', submitQuestion);
-  $('beyondToggle').checked = !app.settings || app.settings.beyondPage !== false;
+  syncToggles();
+  $('webToggle').addEventListener('change', async () => {
+    app.settings = await saveSettings({ webSearch: $('webToggle').checked });
+    toast($('webToggle').checked ? 'Answers can use Google Search' : 'Google Search off');
+  });
   $('beyondToggle').addEventListener('change', async () => {
     app.settings = await saveSettings({ beyondPage: $('beyondToggle').checked });
+    syncToggles();
     toast($('beyondToggle').checked ? 'Answers can go beyond this page' : 'Answers stay on this page');
   });
   $('newChatBtn').addEventListener('click', () => {

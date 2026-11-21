@@ -25,7 +25,7 @@ export const CITATION_RULES_VIDEO = `Citations: the content is the attached vide
 // Unset keeps the template's default rule.
 export const BEYOND_RULES = {
   off: '- Base every answer on the page content only. If the page does not contain the answer, say so plainly and do not answer from general knowledge.',
-  knowledge: '- Use the page content first. If the user asks something the page does not cover, say in one short sentence that the page does not say, then answer it from your general knowledge in a separate paragraph that starts with "Outside the page:". Say when you are unsure, and that figures such as counts, prices and dates may be out of date.',
+  knowledge: '- Use the page content first. If the user asks something the page does not cover, say in one short sentence that the page does not say, then answer it from your general knowledge in a separate paragraph that starts with "Outside the page:". You have no live information and may not know recent events. For anything that changes (who currently holds a role, news, counts, prices, dates, availability), never state it as current fact: say what you last knew, that it may have changed since, and that the user should check a current source. Say when you are unsure.',
   web: '- Use the page content first. If the user asks something the page does not cover, say in one short sentence that the page does not say, then answer it in a separate paragraph that starts with "Outside the page:", using Google Search for current facts. Say when sources disagree or you are unsure.',
 };
 

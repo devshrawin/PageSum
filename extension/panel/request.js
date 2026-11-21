@@ -99,7 +99,8 @@ export async function runRequest(st, o) {
         return withSources(r);
       } catch (err) {
         if (!(err instanceof GeminiError) || (err.code !== 'bad_request' && err.code !== 'forbidden')) throw err;
-        return send(buildRequestBody({ system: sysFor('knowledge'), contents: full }));
+        const r = await send(buildRequestBody({ system: sysFor('knowledge'), contents: full }));
+        return { ...r, text: `*Web search wasn't available for this key or model, so this comes from Gemini's general knowledge and may be out of date.*\n\n${r.text}` };
       }
     }
     if (answer) {

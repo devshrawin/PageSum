@@ -196,7 +196,7 @@ const bigState = () => {
   const st = htmlState({ chunks: [chunk('c1', 'x'.repeat(140000))] });   // about 35,000 tokens
   return st;
 };
-const cacheCfg = (over = {}) => settings({ apiKey: 'cache-ok', explicitCache: true, ...over });
+const cacheCfg = (over = {}) => settings({ apiKey: 'cache-ok', explicitCache: true, webSearch: false, ...over });
 const posts = () => mock.requests.filter((r) => r.url === '/v1beta/cachedContents' && r.method === 'POST');
 
 test('explicit cache off by default: no cachedContents request, ever', async () => {
@@ -282,11 +282,12 @@ test('explicit cache: a cache the server rejects is dropped and the request is r
   assert.equal(st.cache, null);
 });
 
-test('beyond the page: knowledge by default, off when the toggle is off, never for summaries', async () => {
+test('beyond the page: knowledge without search, off when the toggle is off, never for summaries', async () => {
   const sys = () => lastBody().systemInstruction.parts[0].text;
-  await answer(htmlState(), 'S');
+  await answer(htmlState(), 'S', { settings: settings({ webSearch: false }) });
   assert.match(sys(), /Outside the page:/);
   assert.match(sys(), /general knowledge/);
+  assert.match(sys(), /never state it as current fact/);
   assert.equal(lastBody().tools, undefined);
   await answer(htmlState(), 'S', { settings: settings({ beyondPage: false }) });
   assert.match(sys(), /do not answer from general knowledge/);
@@ -294,7 +295,7 @@ test('beyond the page: knowledge by default, off when the toggle is off, never f
   assert.ok(!sys().includes('general knowledge in a separate paragraph'), 'summaries keep the page-only default');
 });
 
-test('beyond the page with web search sends the google_search tool, never a cache', async () => {
+test('beyond the page with web search (the default) sends the google_search tool, never a cache', async () => {
   await answer(htmlState(), 'S', { settings: settings({ webSearch: true, explicitCache: true }) });
   const b = lastBody();
   assert.deepEqual(b.tools, [{ google_search: {} }]);

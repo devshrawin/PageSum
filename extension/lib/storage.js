@@ -17,7 +17,7 @@ export const DEFAULT_SETTINGS = {
   youtubeMode: 'video',        // 'video' | 'transcript'
   explicitCache: false,
   beyondPage: true,            // answer follow-ups from general knowledge when the page lacks the answer
-  webSearch: false,            // let those answers use Google Search for current facts
+  webSearch: true,          // let those answers use Google Search for current facts
   translateTarget: 'English',
   historyEnabled: true,
   historySaveChat: false,
