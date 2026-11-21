@@ -167,6 +167,7 @@ function renderNeedAccess(st) {
 
 function updateModelLabel() {
   $('modelLabel').textContent = app.settings ? app.settings.model : '';
+  $('beyondToggle').checked = !app.settings || app.settings.beyondPage !== false;
 }
 
 /* ---------- summary view ---------- */
@@ -643,6 +644,11 @@ export function initPage() {
     if (st && st.ctrl) st.ctrl.abort();
   });
   $('sendBtn').addEventListener('click', submitQuestion);
+  $('beyondToggle').checked = !app.settings || app.settings.beyondPage !== false;
+  $('beyondToggle').addEventListener('change', async () => {
+    app.settings = await saveSettings({ beyondPage: $('beyondToggle').checked });
+    toast($('beyondToggle').checked ? 'Answers can go beyond this page' : 'Answers stay on this page');
+  });
   $('newChatBtn').addEventListener('click', () => {
     const st = shownState();
     if (!st || st.ctrl) return;

@@ -110,6 +110,14 @@
           <p class="hint">Watching sends the video's public address to Gemini. The transcript option reads the transcript panel you open.</p>
         </fieldset>
         <label class="switch">
+          <span class="switch-text"><span class="label">Answer beyond the page</span><span class="hint">Follow-up questions the page can't answer use Gemini's general knowledge, in a paragraph labelled &ldquo;Outside the page&rdquo;. Also a toggle under the chat box. Summaries always stay on the page.</span></span>
+          <input id="beyondPage" type="checkbox" role="switch">
+        </label>
+        <label class="switch">
+          <span class="switch-text"><span class="label">Use Google Search for those answers</span><span class="hint">Better for current facts such as employee counts or prices, and adds source links. Your question is sent to Google Search through Gemini. If your key or model doesn't allow it, PageSum falls back to general knowledge. Needs &ldquo;Answer beyond the page&rdquo; on.</span></span>
+          <input id="webSearch" type="checkbox" role="switch">
+        </label>
+        <label class="switch">
           <span class="switch-text"><span class="label">Explicit context cache</span><span class="hint">Paid tier only. Not available for Flash-Lite on the free tier. Stores a long page at Google for 15 minutes so follow-up questions send less.</span></span>
           <input id="explicitCache" type="checkbox" role="switch">
         </label>

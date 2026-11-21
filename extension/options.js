@@ -75,7 +75,7 @@ function fillForm() {
 
 /* ---------- v2 settings: features, privacy, site access ---------- */
 
-const SWITCHES = ['citations', 'structuredExtraction', 'readFrames', 'explicitCache', 'sensitiveGuard', 'historyEnabled', 'historySaveChat'];
+const SWITCHES = ['citations', 'structuredExtraction', 'readFrames', 'beyondPage', 'webSearch', 'explicitCache', 'sensitiveGuard', 'historyEnabled', 'historySaveChat'];
 
 function fillV2() {
   for (const id of SWITCHES) $(id).checked = !!settings[id];

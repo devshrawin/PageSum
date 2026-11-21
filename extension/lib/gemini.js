@@ -10,11 +10,13 @@ export const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 // jsonStyle 'responseFormat' (REST docs) or 'legacy' (responseMimeType + responseJsonSchema).
 // cachedContent: 'cachedContents/{id}'. The system prompt then lives in the cache, so it is left out.
 // No sampling fields (temperature, topP...) are ever sent: they are ignored on current models.
-export function buildRequestBody({ system, contents, json, jsonStyle = 'responseFormat', cachedContent }) {
+export function buildRequestBody({ system, contents, json, jsonStyle = 'responseFormat', cachedContent, webSearch }) {
   const body = {};
   if (cachedContent) body.cachedContent = cachedContent;
   else body.systemInstruction = { parts: [{ text: system }] };
   body.contents = contents;
+  // Google Search grounding for current facts. Not combined with a cached context.
+  if (webSearch && !cachedContent) body.tools = [{ google_search: {} }];
   if (json) {
     body.generationConfig = jsonStyle === 'legacy'
       ? { responseMimeType: 'application/json', responseJsonSchema: json }
@@ -38,8 +40,18 @@ export function extractChunk(json) {
     if (p && p.thought === true) continue;
     if (p && typeof p.text === 'string') text += p.text;
   }
+  // Search grounding sources: https only, short titles.
+  const sources = [];
+  const gm = cand && cand.groundingMetadata;
+  for (const c of gm && Array.isArray(gm.groundingChunks) ? gm.groundingChunks : []) {
+    const w = c && c.web;
+    if (w && typeof w.uri === 'string' && /^https:\/\//i.test(w.uri)) {
+      sources.push({ uri: w.uri, title: String(w.title || '').replace(/\s+/g, ' ').slice(0, 100) });
+    }
+  }
   return {
     text,
+    sources,
     finishReason: (cand && cand.finishReason) ?? null,
     blockReason: (json && json.promptFeedback && json.promptFeedback.blockReason) ?? null,
     error: (json && json.error) ?? null,
@@ -90,6 +102,7 @@ export async function streamGenerate({
 
     let text = '';
     let finishReason = null;
+    const sources = [];
     const parser = createSseParser((data) => {
       if (data.trim() === '[DONE]') return;
       let json;
@@ -98,6 +111,7 @@ export async function streamGenerate({
       if (c.error) throw mapHttpError(c.error.code || 500, JSON.stringify({ error: c.error }));
       if (c.blockReason) throw new GeminiError('blocked');
       if (c.finishReason) finishReason = c.finishReason;
+      for (const s of c.sources) if (!sources.some((x) => x.uri === s.uri) && sources.length < 8) sources.push(s);
       if (c.text) {
         text += c.text;
         if (onText) onText(text);
@@ -125,7 +139,7 @@ export async function streamGenerate({
       if (e) throw e;
       throw new GeminiError('empty');
     }
-    return { text, finishReason };
+    return sources.length ? { text, finishReason, sources } : { text, finishReason };
   } finally {
     clearTimeout(timer);
     if (signal) signal.removeEventListener('abort', onAbort);

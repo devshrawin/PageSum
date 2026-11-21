@@ -281,3 +281,24 @@ test('explicit cache: a cache the server rejects is dropped and the request is r
   assert.ok(gens[1].body.systemInstruction);
   assert.equal(st.cache, null);
 });
+
+test('beyond the page: knowledge by default, off when the toggle is off, never for summaries', async () => {
+  const sys = () => lastBody().systemInstruction.parts[0].text;
+  await answer(htmlState(), 'S');
+  assert.match(sys(), /Outside the page:/);
+  assert.match(sys(), /general knowledge/);
+  assert.equal(lastBody().tools, undefined);
+  await answer(htmlState(), 'S', { settings: settings({ beyondPage: false }) });
+  assert.match(sys(), /do not answer from general knowledge/);
+  await run(htmlState());
+  assert.ok(!sys().includes('general knowledge in a separate paragraph'), 'summaries keep the page-only default');
+});
+
+test('beyond the page with web search sends the google_search tool, never a cache', async () => {
+  await answer(htmlState(), 'S', { settings: settings({ webSearch: true, explicitCache: true }) });
+  const b = lastBody();
+  assert.deepEqual(b.tools, [{ google_search: {} }]);
+  assert.match(b.systemInstruction.parts[0].text, /Google Search/);
+  assert.equal(b.cachedContent, undefined);
+  assert.equal(mock.requests.filter((r) => r.url.includes('cachedContents')).length, 0);
+});

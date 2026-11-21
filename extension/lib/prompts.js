@@ -21,10 +21,21 @@ export const CITATION_RULES_VIDEO = `Citations: the content is the attached vide
 
 // opts.citations (boolean) and opts.citeStyle: 'chunk' | 'pdf' | 'video' | 'none'.
 // The v1 call shape buildSystemPrompt(language) keeps working: no citation rules.
+// How follow-up questions that the page does not answer are handled. opts.beyond: 'off' | 'knowledge' | 'web'.
+// Unset keeps the template's default rule.
+export const BEYOND_RULES = {
+  off: '- Base every answer on the page content only. If the page does not contain the answer, say so plainly and do not answer from general knowledge.',
+  knowledge: '- Use the page content first. If the user asks something the page does not cover, say in one short sentence that the page does not say, then answer it from your general knowledge in a separate paragraph that starts with "Outside the page:". Say when you are unsure, and that figures such as counts, prices and dates may be out of date.',
+  web: '- Use the page content first. If the user asks something the page does not cover, say in one short sentence that the page does not say, then answer it in a separate paragraph that starts with "Outside the page:", using Google Search for current facts. Say when sources disagree or you are unsure.',
+};
+
 export function buildSystemPrompt(language, opts) {
   const lang = String(language == null ? '' : language).trim() || 'the same language as the page content';
-  const base = SYSTEM_PROMPT_TEMPLATE.replace('{LANGUAGE}', () => lang);
   const o = opts || {};
+  let base = SYSTEM_PROMPT_TEMPLATE.replace('{LANGUAGE}', () => lang);
+  if (o.beyond && BEYOND_RULES[o.beyond]) {
+    base = base.replace(/^- Base every answer on the page content\..*$/m, () => BEYOND_RULES[o.beyond]);
+  }
   if (!o.citations) return base;
   const rules = o.citeStyle === 'pdf' ? CITATION_RULES_PDF
     : o.citeStyle === 'video' ? CITATION_RULES_VIDEO

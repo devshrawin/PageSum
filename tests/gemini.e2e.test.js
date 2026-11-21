@@ -91,7 +91,14 @@ test('listModels filters the fixture and sends the key as a header', async () =>
 });
 
 test('extractChunk', () => {
-  assert.deepEqual(extractChunk({}), { text: '', finishReason: null, blockReason: null, error: null });
+  assert.deepEqual(extractChunk({}), { text: '', sources: [], finishReason: null, blockReason: null, error: null });
+  const g = extractChunk({ candidates: [{ content: { parts: [{ text: 'x' }] }, groundingMetadata: { groundingChunks: [
+    { web: { uri: 'https://example.com/a', title: 'Example  A' } }, { web: { uri: 'http://insecure.example/b', title: 'no' } }, { web: { uri: 'javascript:alert(1)' } }, {},
+  ] } }] });
+  assert.deepEqual(g.sources, [{ uri: 'https://example.com/a', title: 'Example A' }]);
+  assert.deepEqual(buildRequestBody({ system: 's', contents: [], webSearch: true }).tools, [{ google_search: {} }]);
+  assert.equal(buildRequestBody({ system: 's', contents: [] }).tools, undefined);
+  assert.equal(buildRequestBody({ system: 's', contents: [], webSearch: true, cachedContent: 'cachedContents/1' }).tools, undefined);
   const c = extractChunk({ candidates: [{ content: { parts: [{ text: 'a', thought: true }, { text: 'b' }, { text: 'c' }] }, finishReason: 'STOP' }], promptFeedback: { blockReason: 'SAFETY' } });
   assert.equal(c.text, 'bc');
   assert.equal(c.finishReason, 'STOP');

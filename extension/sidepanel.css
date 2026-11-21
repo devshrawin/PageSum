@@ -98,6 +98,21 @@ a { color: var(--ps-accent-text); }
 .ps-footer { padding-bottom: 10px; }
 .composer textarea { overflow-y: auto; }
 .btn-send { flex: none; }
+.composer-meta { flex-wrap: wrap; row-gap: 4px; }
+.beyond { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; color: var(--ps-text-secondary); font-size: var(--ps-text-xs); }
+.beyond input {
+  appearance: none; margin: 0; position: relative; flex: none; cursor: pointer;
+  width: 28px; height: 16px; border-radius: 999px; background: var(--ps-switch-off);
+  transition: background-color var(--ps-dur-2) var(--ps-ease-out);
+}
+.beyond input::after {
+  content: ""; position: absolute; top: 2px; left: 2px; width: 12px; height: 12px; border-radius: 50%;
+  background: #fff; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25); transition: transform var(--ps-dur-2) var(--ps-ease-emph);
+}
+.beyond input:checked { background: var(--ps-accent); }
+.beyond input:checked::after { transform: translateX(12px); }
+.beyond input:focus-visible { outline: none; box-shadow: var(--ps-focus-ring); }
+.composer-meta .model-label { margin-left: auto; }
 
 /* Toast: fixed, above the composer */
 .toast {

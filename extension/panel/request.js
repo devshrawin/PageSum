@@ -42,7 +42,8 @@ async function ensureCache(st, { settings, system, first, summary, baseUrl, fetc
   });
   if (!ok) return null;
   const c = st.cache;
-  if (c && c.model === settings.model && c.summary === summary && cacheIsFresh(c)) return c.name;
+  // The system prompt is baked into a cache, so a changed rule (beyond-page toggle) needs a new one.
+  if (c && c.model === settings.model && c.summary === summary && (c.system === undefined || c.system === system) && cacheIsFresh(c)) return c.name;
   if (c && c.name) await deleteCache({ apiKey: settings.apiKey, name: c.name, baseUrl, fetchImpl });
   st.cache = null;
   try {
@@ -50,12 +51,20 @@ async function ensureCache(st, { settings, system, first, summary, baseUrl, fetc
       apiKey: settings.apiKey, model: settings.model, system,
       contents: [first, { role: 'model', parts: [{ text: summary }] }], baseUrl, fetchImpl,
     });
-    st.cache = { name: made.name, expireAt: made.expireAt, model: settings.model, summary };
+    st.cache = { name: made.name, expireAt: made.expireAt, model: settings.model, summary, system };
     return made.name;
   } catch {
     try { await storage.set({ cacheUnsupported: markUnsupported(map, settings.model) }); } catch { /* session storage unavailable */ }
     return null;
   }
+}
+
+// Search sources become a plain markdown list of https links under the answer.
+function withSources(r) {
+  if (!r || !r.sources || !r.sources.length) return r;
+  const clean = (t) => String(t).replace(/[\[\]()\\]/g, '').trim();
+  const lines = r.sources.map((s) => `- [${clean(s.title || new URL(s.uri).hostname) || 'source'}](${s.uri.replace(/[()\s]/g, encodeURIComponent)})`);
+  return { ...r, text: `${r.text}\n\nSources:\n${lines.join('\n')}` };
 }
 
 // o: { settings, windowId, kind: 'summary' | 'answer', length, summary, messages, signal, onText, baseUrl?, fetchImpl?, storage? }
@@ -66,8 +75,11 @@ export async function runRequest(st, o) {
   const page = st.page;
   const nonce = st.conv.nonce;
   const cites = citationsOn(settings, page);
-  const system = buildSystemPrompt(settings.language, { citations: cites, citeStyle: cites ? citeStyleFor(page) : 'none' });
   const answer = o.kind === 'answer';
+  // Beyond-the-page answers apply to follow-up questions only; summaries always stay on the page.
+  const beyond = !answer ? undefined : settings.beyondPage === false ? 'off' : settings.webSearch ? 'web' : 'knowledge';
+  const sysFor = (b) => buildSystemPrompt(settings.language, { citations: cites, citeStyle: cites ? citeStyleFor(page) : 'none', beyond: b });
+  const system = sysFor(beyond);
 
   const send = (body) => streamGenerate({
     apiKey: settings.apiKey, model: settings.model, body, signal: o.signal, onText: o.onText, baseUrl: o.baseUrl, fetchImpl: o.fetchImpl,
@@ -79,6 +91,17 @@ export async function runRequest(st, o) {
 
   async function attempt(turn) {
     const full = contentsFor(turn);
+    if (beyond === 'web') {
+      // Search grounding cannot ride on a cached context, so this sends everything. If the model or key
+      // does not allow search, fall back to general knowledge without it.
+      try {
+        const r = await send(buildRequestBody({ system, contents: full, webSearch: true }));
+        return withSources(r);
+      } catch (err) {
+        if (!(err instanceof GeminiError) || (err.code !== 'bad_request' && err.code !== 'forbidden')) throw err;
+        return send(buildRequestBody({ system: sysFor('knowledge'), contents: full }));
+      }
+    }
     if (answer) {
       const cached = await ensureCache(st, { settings, system, first: full[0], summary: o.summary, baseUrl: o.baseUrl, fetchImpl: o.fetchImpl, storage });
       if (cached) {
